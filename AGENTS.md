@@ -32,6 +32,9 @@ Use Node.js 22.12 or newer and npm. Keep `package-lock.json` synchronized with
 
 ## Implementation expectations
 
+- The project is under active development. Changes do not need to be backward
+  compatible; prefer clean architecture and maintainable code over preserving
+  legacy behavior or interfaces.
 - Keep the product local-first and folder-based.
 - Treat the directory passed to `appshot dev` as the project boundary. Prevent
   path traversal and do not expose unrelated filesystem contents.
