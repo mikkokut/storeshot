@@ -11,8 +11,10 @@ import {
   type AssetCategory,
   type CanvasElement,
   type CreateSetInput,
+  type FontWeight,
   type ScreenshotArea,
   type ScreenshotSet,
+  type UpdateSetMetadataInput,
 } from "./shared.js"
 
 export const CONFIG_FILENAME = "appshot.json"
@@ -175,6 +177,12 @@ export class ProjectStore {
     return value
   }
 
+  async updateSetMetadata(id: string, input: UpdateSetMetadataInput): Promise<ScreenshotSet> {
+    const current = parseSet(JSON.parse(await readFile(this.resolveSet(id), "utf8")))
+    const metadata = parseSetMetadataInput(input)
+    return this.writeSet(id, { ...current, ...metadata })
+  }
+
   async deleteSet(id: string): Promise<void> {
     await unlink(this.resolveSet(id))
   }
@@ -246,6 +254,15 @@ function parseCreateSetInput(value: unknown): CreateSetInput {
   }
 }
 
+function parseSetMetadataInput(value: unknown): UpdateSetMetadataInput {
+  if (!isRecord(value)) throw new Error("Set settings must be an object")
+  return {
+    name: readString(value.name, "Set name"),
+    locale: readString(value.locale, "Locale"),
+    device: readString(value.device, "Device"),
+  }
+}
+
 function parseSet(value: unknown): ScreenshotSet {
   if (!isRecord(value)) throw new Error("Set file must contain an object")
 
@@ -301,19 +318,26 @@ function parseElement(value: unknown): CanvasElement {
   }
 
   if (value.type === "text") {
-    if (![400, 600, 700, 800].includes(Number(value.fontWeight))) throw new Error("Text weight is invalid")
+    const fontWeight = Number(value.fontWeight)
+    if (!Number.isInteger(fontWeight) || fontWeight < 100 || fontWeight > 900 || fontWeight % 100 !== 0) {
+      throw new Error("Text weight is invalid")
+    }
     if (value.textAlign !== "left" && value.textAlign !== "center" && value.textAlign !== "right") {
       throw new Error("Text alignment is invalid")
     }
     const color = readString(value.color, "Text color")
     if (!hexColorPattern.test(color)) throw new Error("Text color must be a hex color")
+    const lineHeight = value.lineHeight === undefined
+      ? undefined
+      : readDimension(value.lineHeight, "Text line height")
     return {
       ...base,
       type: "text",
       text: typeof value.text === "string" ? value.text : "",
       fontFamily: readOptionalString(value.fontFamily, "Geist Variable"),
       fontSize: readDimension(value.fontSize, "Font size"),
-      fontWeight: Number(value.fontWeight) as 400 | 600 | 700 | 800,
+      fontWeight: fontWeight as FontWeight,
+      ...(lineHeight === undefined ? {} : { lineHeight }),
       color,
       textAlign: value.textAlign,
     }

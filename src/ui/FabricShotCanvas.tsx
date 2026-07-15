@@ -1,11 +1,14 @@
 import { useEffect, useRef } from "react"
-import { Canvas as FabricCanvas, FabricImage, Rect, Textbox, type FabricObject } from "fabric"
+import { Canvas as FabricCanvas, FabricImage, Line, Point, Rect, Textbox, type FabricObject } from "fabric"
 
-import type { Asset, CanvasElement, ScreenshotArea, TextElement } from "../shared"
+import { DEFAULT_TEXT_LINE_HEIGHT_RATIO, type Asset, type CanvasElement, type ScreenshotArea, type TextElement } from "../shared"
+import { loadBunnyFont } from "./bunny-fonts"
+import { calculateCenterSnap } from "./canvas-snapping"
 
 export const SHOT_DISPLAY_WIDTH = 348
 
 const CONTROL_COLOR = "#1683ff"
+const SNAP_THRESHOLD = 6
 
 interface FabricShotCanvasProps {
   active: boolean
@@ -15,6 +18,7 @@ interface FabricShotCanvasProps {
   selectedElementId: string | null
   onActivate: () => void
   onChange: (element: CanvasElement) => void
+  onContextMenu: (elementId: string | null, position: { x: number; y: number }) => void
   onSelect: (elementId: string | null) => void
 }
 
@@ -22,6 +26,7 @@ interface CanvasCallbacks {
   active: boolean
   onActivate: () => void
   onChange: (element: CanvasElement) => void
+  onContextMenu: (elementId: string | null, position: { x: number; y: number }) => void
   onSelect: (elementId: string | null) => void
 }
 
@@ -33,6 +38,7 @@ export function FabricShotCanvas({
   selectedElementId,
   onActivate,
   onChange,
+  onContextMenu,
   onSelect,
 }: FabricShotCanvasProps) {
   const canvasElement = useRef<HTMLCanvasElement>(null)
@@ -41,12 +47,12 @@ export function FabricShotCanvas({
   const idsByObject = useRef(new WeakMap<FabricObject, string>())
   const areaRef = useRef(area)
   const syncVersion = useRef(0)
-  const callbacks = useRef<CanvasCallbacks>({ active, onActivate, onChange, onSelect })
+  const callbacks = useRef<CanvasCallbacks>({ active, onActivate, onChange, onContextMenu, onSelect })
   const scale = SHOT_DISPLAY_WIDTH / canvasSize.width
   const displayHeight = Math.round(canvasSize.height * scale)
 
   areaRef.current = area
-  callbacks.current = { active, onActivate, onChange, onSelect }
+  callbacks.current = { active, onActivate, onChange, onContextMenu, onSelect }
 
   useEffect(() => {
     const element = canvasElement.current
@@ -65,6 +71,38 @@ export function FabricShotCanvas({
       uniformScaling: true,
     })
     fabricCanvas.current = canvas
+    let horizontalGuide: Line | null = null
+    let verticalGuide: Line | null = null
+
+    const clearGuides = () => {
+      if (horizontalGuide) canvas.remove(horizontalGuide)
+      if (verticalGuide) canvas.remove(verticalGuide)
+      horizontalGuide = null
+      verticalGuide = null
+      canvas.requestRenderAll()
+    }
+
+    const updateGuides = (showHorizontal: boolean, showVertical: boolean) => {
+      if (showHorizontal && !horizontalGuide) {
+        horizontalGuide = createGuide([0, canvas.getHeight() / 2, canvas.getWidth(), canvas.getHeight() / 2])
+        canvas.add(horizontalGuide)
+      } else if (!showHorizontal && horizontalGuide) {
+        canvas.remove(horizontalGuide)
+        horizontalGuide = null
+      }
+
+      if (showVertical && !verticalGuide) {
+        verticalGuide = createGuide([canvas.getWidth() / 2, 0, canvas.getWidth() / 2, canvas.getHeight()])
+        canvas.add(verticalGuide)
+      } else if (!showVertical && verticalGuide) {
+        canvas.remove(verticalGuide)
+        verticalGuide = null
+      }
+
+      if (horizontalGuide) canvas.bringObjectToFront(horizontalGuide)
+      if (verticalGuide) canvas.bringObjectToFront(verticalGuide)
+      canvas.requestRenderAll()
+    }
 
     const selectTarget = (target?: FabricObject) => {
       callbacks.current.onActivate()
@@ -81,9 +119,36 @@ export function FabricShotCanvas({
     canvas.on("selection:created", ({ selected }) => selectTarget(selected?.[0]))
     canvas.on("selection:updated", ({ selected }) => selectTarget(selected?.[0]))
     canvas.on("selection:cleared", () => {
+      clearGuides()
       if (callbacks.current.active) callbacks.current.onSelect(null)
     })
-    canvas.on("object:modified", ({ target }) => emitChange(target))
+    canvas.on("contextmenu", ({ e, target }) => {
+      e.preventDefault()
+      const event = e as MouseEvent
+      const elementId = target ? idsByObject.current.get(target) ?? null : null
+      if (target && elementId) {
+        canvas.setActiveObject(target)
+        selectTarget(target)
+        canvas.requestRenderAll()
+      }
+      callbacks.current.onContextMenu(elementId, { x: event.clientX, y: event.clientY })
+    })
+    canvas.on("object:moving", ({ target }) => {
+      const objectCenter = target.getCenterPoint()
+      const canvasCenter = canvas.getCenterPoint()
+      const snap = calculateCenterSnap(objectCenter, canvasCenter, SNAP_THRESHOLD)
+
+      if (snap.horizontal || snap.vertical) {
+        target.setPositionByOrigin(new Point(snap.x, snap.y), "center", "center")
+        target.setCoords()
+      }
+      updateGuides(snap.horizontal, snap.vertical)
+    })
+    canvas.on("object:modified", ({ target }) => {
+      clearGuides()
+      emitChange(target)
+    })
+    canvas.on("mouse:up", clearGuides)
     canvas.on("text:changed", ({ target }) => emitChange(target))
     canvas.on("text:editing:exited", ({ target }) => emitChange(target))
 
@@ -132,6 +197,19 @@ export function FabricShotCanvas({
         if (!(object instanceof Textbox && object.isEditing)) {
           applyElement(object, element, scale)
         }
+
+        if (element.type === "text" && object instanceof Textbox) {
+          const textObject = object
+          void loadBunnyFont(element.fontFamily, element.fontWeight)
+            .then(() => {
+              if (version !== syncVersion.current || fabricCanvas.current !== canvas) return
+              const currentElement = areaRef.current.elements.find((candidate) => candidate.id === element.id)
+              if (!currentElement || currentElement.type !== "text") return
+              applyElement(textObject, currentElement, scale)
+              canvas.requestRenderAll()
+            })
+            .catch(() => undefined)
+        }
       }
 
       if (version !== syncVersion.current || fabricCanvas.current !== canvas) return
@@ -166,6 +244,18 @@ export function FabricShotCanvas({
       <canvas ref={canvasElement} aria-label={`${area.name} editable canvas`} />
     </div>
   )
+}
+
+function createGuide(points: [number, number, number, number]): Line {
+  return new Line(points, {
+    evented: false,
+    excludeFromExport: true,
+    objectCaching: false,
+    selectable: false,
+    stroke: CONTROL_COLOR,
+    strokeDashArray: [4, 4],
+    strokeWidth: 1,
+  })
 }
 
 async function createObject(element: CanvasElement, asset?: Asset): Promise<FabricObject> {
@@ -241,7 +331,9 @@ function applyElement(object: FabricObject, element: CanvasElement, scale: numbe
       fontFamily: element.fontFamily,
       fontSize: element.fontSize * scale,
       fontWeight: element.fontWeight,
-      lineHeight: 1.05,
+      lineHeight: element.lineHeight === undefined
+        ? DEFAULT_TEXT_LINE_HEIGHT_RATIO
+        : element.lineHeight / element.fontSize,
       scaleX: 1,
       scaleY: 1,
       text: element.text,
@@ -288,6 +380,9 @@ function readElement(object: FabricObject, element: CanvasElement, scale: number
       fontFamily: object.fontFamily,
       fontSize: round(element.fontSize * Math.abs(object.scaleY), 2),
       fontWeight: normalizeFontWeight(object.fontWeight),
+      lineHeight: element.lineHeight === undefined
+        ? undefined
+        : round(element.lineHeight * Math.abs(object.scaleY), 2),
       color: typeof object.fill === "string" ? object.fill : element.color,
       textAlign: normalizeTextAlign(object.textAlign),
     }
@@ -298,7 +393,7 @@ function readElement(object: FabricObject, element: CanvasElement, scale: number
 
 function normalizeFontWeight(value: TextElement["fontWeight"] | string | number): TextElement["fontWeight"] {
   const numeric = Number(value)
-  if (numeric === 400 || numeric === 600 || numeric === 700 || numeric === 800) return numeric
+  if (Number.isInteger(numeric) && numeric >= 100 && numeric <= 900 && numeric % 100 === 0) return numeric as TextElement["fontWeight"]
   return 400
 }
 

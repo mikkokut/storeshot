@@ -33,12 +33,17 @@ export interface ImageElement extends CanvasElementBase {
   fit: "contain" | "cover"
 }
 
+export type FontWeight = 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900
+export const DEFAULT_TEXT_LINE_HEIGHT_RATIO = 1.05
+
 export interface TextElement extends CanvasElementBase {
   type: "text"
   text: string
   fontFamily: string
   fontSize: number
-  fontWeight: 400 | 600 | 700 | 800
+  fontWeight: FontWeight
+  /** Absolute line height in canvas pixels. When omitted, the renderer derives it from the font size. */
+  lineHeight?: number
   color: string
   textAlign: "left" | "center" | "right"
 }
@@ -80,6 +85,12 @@ export interface CreateSetInput {
   device: string
   width: number
   height: number
+}
+
+export interface UpdateSetMetadataInput {
+  name: string
+  locale: string
+  device: string
 }
 
 export interface AppshotProject {

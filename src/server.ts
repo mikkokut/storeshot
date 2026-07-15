@@ -6,7 +6,7 @@ import path from "node:path"
 import type { ViteDevServer } from "vite"
 
 import { AssetNameConflictError, DuplicateAssetError, ProjectStore } from "./project-store.js"
-import type { AppshotConfig, AssetCategory, CreateSetInput, ScreenshotSet } from "./shared.js"
+import type { AppshotConfig, AssetCategory, CreateSetInput, ScreenshotSet, UpdateSetMetadataInput } from "./shared.js"
 
 const MAX_REQUEST_BYTES = 25 * 1024 * 1024
 
@@ -138,6 +138,11 @@ async function handleApiRequest(
   const setMatch = url.pathname.match(/^\/api\/sets\/([^/]+)$/)
   if (setMatch) {
     const id = decodeURIComponent(setMatch[1])
+    if (request.method === "PATCH") {
+      const set = await store.updateSetMetadata(id, (await readJsonBody(request)) as UpdateSetMetadataInput)
+      sendJson(response, 200, set)
+      return true
+    }
     if (request.method === "PUT") {
       const set = await store.writeSet(id, (await readJsonBody(request)) as ScreenshotSet)
       sendJson(response, 200, set)

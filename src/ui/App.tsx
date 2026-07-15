@@ -1,30 +1,49 @@
-import { lazy, Suspense, useEffect, useState, type FormEvent } from "react"
-import { FolderOpen, Image, LayoutGrid, LoaderCircle, MonitorSmartphone, Plus, Settings2 } from "lucide-react"
+import { lazy, Suspense, useEffect, useId, useState, type FormEvent } from "react"
+import { FolderOpen, Image, LoaderCircle, MonitorSmartphone, Plus, Settings, Trash2, type LucideIcon } from "lucide-react"
 
 import { AssetsView } from "@/AssetsView"
 import { CreateSetForm } from "@/CreateSetForm"
 import { request, messageFor } from "@/api"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
-import type { AppshotProject, ScreenshotSet } from "../shared"
+import type { AppshotProject, ScreenshotSet, UpdateSetMetadataInput } from "../shared"
 
 const SetEditor = lazy(async () => {
   const module = await import("@/SetEditor")
   return { default: module.SetEditor }
 })
 
-type Page = "overview" | "assets" | "new-set" | string
+type AppRoute =
+  | { kind: "assets" }
+  | { kind: "new-set" }
+  | { kind: "set"; setId: string }
+  | { kind: "unknown" }
 
 export function App() {
   const [project, setProject] = useState<AppshotProject | null>(null)
-  const [page, setPage] = useState<Page>("overview")
+  const [pathname, setPathname] = useState(() => window.location.pathname)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     void refresh()
   }, [])
+
+  useEffect(() => {
+    const handlePopState = () => setPathname(window.location.pathname)
+    window.addEventListener("popstate", handlePopState)
+    return () => window.removeEventListener("popstate", handlePopState)
+  }, [])
+
+  useEffect(() => {
+    if (!project) return
+    const canonicalPath = canonicalProjectPath(pathname, project)
+    if (canonicalPath === pathname) return
+    window.history.replaceState(null, "", canonicalPath)
+    setPathname(canonicalPath)
+  }, [pathname, project])
 
   async function refresh() {
     try {
@@ -42,7 +61,33 @@ export function App() {
 
   function createdSet(set: ScreenshotSet) {
     setProject((current) => current && ({ ...current, sets: [...current.sets, set] }))
-    setPage(set.id)
+    navigate(setPath(set.id))
+  }
+
+  function navigate(nextPath: string, replace = false) {
+    if (nextPath === pathname) return
+    window.history[replace ? "replaceState" : "pushState"](null, "", nextPath)
+    setPathname(nextPath)
+  }
+
+  async function saveSetMetadata(id: string, input: UpdateSetMetadataInput) {
+    const saved = await request<ScreenshotSet>(`/api/sets/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    })
+    updateSet(saved)
+  }
+
+  async function deleteSet(id: string) {
+    if (!project) return
+    await request(`/api/sets/${id}`, { method: "DELETE" })
+    const remainingSets = project.sets.filter((set) => set.id !== id)
+    setProject((current) => current && ({ ...current, sets: current.sets.filter((set) => set.id !== id) }))
+    const currentRoute = routeFromPath(pathname)
+    if (currentRoute.kind === "set" && currentRoute.setId === id) {
+      navigate(defaultPath(remainingSets), true)
+    }
   }
 
   if (!project) {
@@ -56,14 +101,16 @@ export function App() {
     )
   }
 
-  const selectedSet = project.sets.find((set) => set.id === page)
+  const activePath = canonicalProjectPath(pathname, project)
+  const route = routeFromPath(activePath)
+  const selectedSet = route.kind === "set" ? project.sets.find((set) => set.id === route.setId) : undefined
   const assetCount = Object.values(project.assets).reduce((total, assets) => total + assets.length, 0)
 
   return (
     <div className="flex h-screen min-h-[640px] flex-col overflow-hidden bg-muted/30">
       <header className="shrink-0 border-b bg-background">
         <div className="flex h-16 items-center justify-between px-5">
-          <button className="flex items-center gap-3 text-left" type="button" onClick={() => setPage("overview")}>
+          <button className="flex items-center gap-3 text-left" type="button" onClick={() => navigate(defaultPath(project.sets))}>
             <span className="grid size-9 place-items-center rounded-lg bg-primary text-primary-foreground">
               <MonitorSmartphone className="size-5" />
             </span>
@@ -82,13 +129,12 @@ export function App() {
       <div className="flex min-h-0 flex-1">
         <aside className="flex w-64 shrink-0 flex-col border-r bg-background p-3">
           <nav className="space-y-1">
-            <SidebarButton active={page === "overview"} icon={LayoutGrid} label="Screenshot sets" onClick={() => setPage("overview")} />
-            <SidebarButton active={page === "assets"} icon={Image} label="Asset catalog" badge={assetCount} onClick={() => setPage("assets")} />
+            <SidebarButton active={route.kind === "assets"} icon={Image} label="Asset catalog" badge={assetCount} onClick={() => navigate("/assets")} />
           </nav>
 
           <div className="mt-5 flex items-center justify-between px-2">
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Sets</p>
-            <Button aria-label="New screenshot set" size="icon" variant="ghost" onClick={() => setPage("new-set")}>
+            <Button aria-label="New screenshot set" size="icon" variant="ghost" onClick={() => navigate("/sets/new")}>
               <Plus className="size-4" />
             </Button>
           </div>
@@ -96,18 +142,19 @@ export function App() {
             {project.sets.length === 0 ? (
               <p className="px-2 py-3 text-xs leading-relaxed text-muted-foreground">No sets yet. Create one for each language and device.</p>
             ) : project.sets.map((set) => (
-              <button
+              <div
                 className={cn(
-                  "w-full rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-muted",
-                  page === set.id && "bg-muted",
+                  "group flex w-full items-center rounded-lg transition-colors hover:bg-muted",
+                  selectedSet?.id === set.id && "bg-muted",
                 )}
                 key={set.id}
-                type="button"
-                onClick={() => setPage(set.id)}
               >
-                <span className="block truncate text-sm font-medium">{set.name}</span>
-                <span className="mt-0.5 block truncate text-xs text-muted-foreground">{set.locale} · {set.device}</span>
-              </button>
+                <button className="min-w-0 flex-1 px-3 py-2.5 text-left" type="button" onClick={() => navigate(setPath(set.id))}>
+                  <span className="block truncate text-sm font-medium">{set.name}</span>
+                  <span className="mt-0.5 block truncate text-xs text-muted-foreground">{set.locale} · {set.device}</span>
+                </button>
+                <SetSettingsPopover set={set} onDelete={deleteSet} onSave={saveSetMetadata} />
+              </div>
             ))}
           </div>
 
@@ -120,19 +167,14 @@ export function App() {
         </aside>
 
         <main className="min-w-0 flex-1">
-          {page === "overview" && <Overview project={project} onNewSet={() => setPage("new-set")} onOpenSet={setPage} onProjectChange={setProject} />}
-          {page === "assets" && <AssetsView project={project} onProjectChange={setProject} />}
-          {page === "new-set" && <CreateSetForm onCancel={() => setPage("overview")} onCreate={createdSet} />}
+          {route.kind === "assets" && <AssetsView project={project} onProjectChange={setProject} />}
+          {route.kind === "new-set" && <CreateSetForm onCancel={() => navigate(project.sets[0] ? setPath(project.sets[0].id) : "/assets")} onCreate={createdSet} />}
           {selectedSet && (
             <Suspense fallback={<div className="grid h-full place-items-center text-sm text-muted-foreground"><LoaderCircle className="mr-2 inline size-4 animate-spin" />Opening editor…</div>}>
               <SetEditor
                 assets={project.assets}
                 set={selectedSet}
-                onDelete={async () => {
-                  await refresh()
-                  setPage("overview")
-                }}
-                onOpenAssets={() => setPage("assets")}
+                onOpenAssets={() => navigate("/assets")}
                 onSetChange={updateSet}
               />
             </Suspense>
@@ -143,9 +185,111 @@ export function App() {
   )
 }
 
+function SetSettingsPopover({ set, onDelete, onSave }: {
+  set: ScreenshotSet
+  onDelete: (id: string) => Promise<void>
+  onSave: (id: string, input: UpdateSetMetadataInput) => Promise<void>
+}) {
+  const [open, setOpen] = useState(false)
+  const [name, setName] = useState(set.name)
+  const [locale, setLocale] = useState(set.locale)
+  const [device, setDevice] = useState(set.device)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const nameId = useId()
+  const localeId = useId()
+  const deviceId = useId()
+
+  function changeOpen(nextOpen: boolean) {
+    if (nextOpen) {
+      setName(set.name)
+      setLocale(set.locale)
+      setDevice(set.device)
+      setError(null)
+    }
+    setOpen(nextOpen)
+  }
+
+  async function save(event: FormEvent) {
+    event.preventDefault()
+    setBusy(true)
+    setError(null)
+    try {
+      await onSave(set.id, { name: name.trim(), locale: locale.trim(), device: device.trim() })
+      setOpen(false)
+    } catch (nextError) {
+      setError(messageFor(nextError))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function remove() {
+    if (!window.confirm(`Delete the set “${set.name}”?`)) return
+    setBusy(true)
+    setError(null)
+    try {
+      await onDelete(set.id)
+      setOpen(false)
+    } catch (nextError) {
+      setError(messageFor(nextError))
+      setBusy(false)
+    }
+  }
+
+  const valid = name.trim() && locale.trim() && device.trim()
+
+  return (
+    <Popover open={open} onOpenChange={changeOpen}>
+      <PopoverTrigger
+        render={
+          <Button
+            aria-label={`Settings for ${set.name}`}
+            className="mr-1 text-muted-foreground opacity-60 group-hover:opacity-100 aria-expanded:opacity-100 focus-visible:opacity-100"
+            size="icon-sm"
+            type="button"
+            variant="ghost"
+          />
+        }
+      >
+        <Settings className="size-3.5" />
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-72 gap-4 p-4" side="right" sideOffset={8}>
+        <PopoverHeader>
+          <PopoverTitle>Set settings</PopoverTitle>
+          <PopoverDescription>Language and device details for this screenshot set.</PopoverDescription>
+        </PopoverHeader>
+        <form className="space-y-3" onSubmit={save}>
+          <Field className="gap-1.5">
+            <FieldLabel htmlFor={nameId}>Name</FieldLabel>
+            <Input autoFocus id={nameId} value={name} onChange={(event) => setName(event.target.value)} />
+          </Field>
+          <div className="grid grid-cols-2 gap-2">
+            <Field className="gap-1.5">
+              <FieldLabel htmlFor={localeId}>Locale</FieldLabel>
+              <Input id={localeId} value={locale} onChange={(event) => setLocale(event.target.value)} />
+            </Field>
+            <Field className="gap-1.5">
+              <FieldLabel htmlFor={deviceId}>Device</FieldLabel>
+              <Input id={deviceId} value={device} onChange={(event) => setDevice(event.target.value)} />
+            </Field>
+          </div>
+          {error && <p className="text-xs text-destructive">{error}</p>}
+          <div className="flex items-center justify-between gap-2 pt-1">
+            <Button disabled={busy} size="sm" type="button" variant="destructive" onClick={() => void remove()}>
+              <Trash2 className="size-3.5" />Delete
+            </Button>
+            <Button disabled={busy || !valid} size="sm" type="submit">{busy ? "Saving…" : "Save"}</Button>
+          </div>
+        </form>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 function SidebarButton({ active, icon: Icon, label, badge, onClick }: {
   active: boolean
-  icon: typeof LayoutGrid
+  icon: LucideIcon
   label: string
   badge?: number
   onClick: () => void
@@ -163,83 +307,36 @@ function SidebarButton({ active, icon: Icon, label, badge, onClick }: {
   )
 }
 
-function Overview({ project, onNewSet, onOpenSet, onProjectChange }: {
-  project: AppshotProject
-  onNewSet: () => void
-  onOpenSet: (id: string) => void
-  onProjectChange: (project: AppshotProject) => void
-}) {
-  const [appName, setAppName] = useState(project.config.appName)
-  const [busy, setBusy] = useState(false)
-
-  async function saveProject(event: FormEvent) {
-    event.preventDefault()
-    setBusy(true)
-    try {
-      await request("/api/config", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...project.config, appName }),
-      })
-      onProjectChange({ ...project, config: { ...project.config, appName } })
-    } finally {
-      setBusy(false)
-    }
+function routeFromPath(pathname: string): AppRoute {
+  const normalizedPath = normalizePath(pathname)
+  if (normalizedPath === "/assets") return { kind: "assets" }
+  if (normalizedPath === "/sets/new") return { kind: "new-set" }
+  const setMatch = normalizedPath.match(/^\/sets\/([^/]+)$/)
+  if (!setMatch) return { kind: "unknown" }
+  try {
+    return { kind: "set", setId: decodeURIComponent(setMatch[1]) }
+  } catch {
+    return { kind: "unknown" }
   }
+}
 
-  return (
-    <div className="h-full overflow-auto">
-      <div className="mx-auto max-w-7xl space-y-8 p-8">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Workspace</p>
-            <h1 className="text-2xl font-semibold tracking-tight">Screenshot sets</h1>
-            <p className="mt-1 text-sm text-muted-foreground">One editable set for every language and device combination.</p>
-          </div>
-          <Button onClick={onNewSet}><Plus className="size-4" />New set</Button>
-        </div>
+function canonicalProjectPath(pathname: string, project: AppshotProject): string {
+  const route = routeFromPath(pathname)
+  if (route.kind === "assets") return "/assets"
+  if (route.kind === "new-set") return "/sets/new"
+  if (route.kind === "set" && project.sets.some((set) => set.id === route.setId)) return setPath(route.setId)
+  return defaultPath(project.sets)
+}
 
-        {project.sets.length === 0 ? (
-          <button
-            className="grid min-h-72 w-full place-items-center rounded-xl border border-dashed bg-muted/10 text-center transition-colors outline-none hover:bg-muted/30 focus-visible:border-foreground/40"
-            type="button"
-            onClick={onNewSet}
-          >
-            <span className="space-y-3">
-              <span className="mx-auto grid size-12 place-items-center rounded-full bg-primary text-primary-foreground"><Plus className="size-5" /></span>
-              <span className="block text-sm font-semibold">Create your first screenshot set</span>
-              <span className="block text-xs text-muted-foreground">For example: English · iPhone</span>
-            </span>
-          </button>
-        ) : (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {project.sets.map((set) => (
-              <button className="rounded-xl border bg-background p-5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md" key={set.id} type="button" onClick={() => onOpenSet(set.id)}>
-                <div className="mb-7 flex items-center justify-between">
-                  <span className="grid size-10 place-items-center rounded-lg bg-muted"><MonitorSmartphone className="size-5 text-muted-foreground" /></span>
-                  <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">{set.areas.length} area{set.areas.length === 1 ? "" : "s"}</span>
-                </div>
-                <p className="font-semibold">{set.name}</p>
-                <p className="mt-1 text-sm text-muted-foreground">{set.locale} · {set.device}</p>
-                <p className="mt-4 text-xs text-muted-foreground">{set.canvas.width} × {set.canvas.height} px</p>
-              </button>
-            ))}
-          </div>
-        )}
+function defaultPath(sets: ScreenshotSet[]): string {
+  return sets[0] ? setPath(sets[0].id) : "/sets/new"
+}
 
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2"><Settings2 className="size-4" /><CardTitle>Project settings</CardTitle></div>
-            <CardDescription>Stored in appshot.json</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form className="flex max-w-lg items-end gap-3" onSubmit={saveProject}>
-              <label className="flex-1 space-y-2"><span className="text-sm font-medium">App name</span><Input value={appName} onChange={(event) => setAppName(event.target.value)} /></label>
-              <Button disabled={busy || !appName.trim()} type="submit">Save</Button>
-            </form>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  )
+function setPath(id: string): string {
+  return `/sets/${encodeURIComponent(id)}`
+}
+
+function normalizePath(pathname: string): string {
+  if (pathname === "/") return pathname
+  return pathname.replace(/\/+$/, "") || "/"
 }

@@ -43,7 +43,11 @@ Use Node.js 22.12 or newer and npm. Keep `package-lock.json` synchronized with
 - Keep Node-only code out of the browser bundle and browser-only code out of
   the CLI runtime.
 - Preserve strict TypeScript and shared request/response types.
-- Prefer small source-owned shadcn components over adding a large UI framework.
+- Prefer source-owned shadcn components over completely custom UI controls.
+  Before building an interactive control, check whether the shadcn registry has
+  a suitable primitive and use it when practical. Keep components aligned with
+  this project's Nova style and Base UI foundation; use native or custom
+  controls only when shadcn has no appropriate equivalent.
 - Avoid new production dependencies when a small Node or browser API is enough.
 - Never commit generated `dist/`, `node_modules/`, or files inside the local
   `playground/` project. Keep `playground/.gitkeep` so fresh checkouts have the
