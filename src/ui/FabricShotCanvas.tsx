@@ -336,6 +336,7 @@ function applyElement(object: FabricObject, element: CanvasElement, scale: numbe
         : element.lineHeight / element.fontSize,
       scaleX: 1,
       scaleY: 1,
+      strokeWidth: 0,
       text: element.text,
       textAlign: element.textAlign,
       width: Math.max(24, element.width * scale),
@@ -366,8 +367,8 @@ function readElement(object: FabricObject, element: CanvasElement, scale: number
     ...element,
     x: round((object.left ?? 0) / scale),
     y: round((object.top ?? 0) / scale),
-    width: round(object.getScaledWidth() / scale),
-    height: round(object.getScaledHeight() / scale),
+    width: round(object.width * Math.abs(object.scaleX) / scale),
+    height: round(object.height * Math.abs(object.scaleY) / scale),
     rotation: round(object.angle ?? 0),
     opacity: round(object.opacity ?? 1, 3),
   }

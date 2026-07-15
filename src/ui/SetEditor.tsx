@@ -16,9 +16,11 @@ import {
   Layers3,
   LoaderCircle,
   Plus,
+  Redo2,
   Square,
   Trash2,
   Type,
+  Undo2,
   X,
 } from "lucide-react"
 
@@ -63,7 +65,26 @@ interface ObjectContextMenuState {
   y: number
 }
 
+interface EditorSnapshot {
+  areas: ScreenshotArea[]
+  selectedAreaId: string
+  selectedElementId: string | null
+}
+
+interface EditorHistory {
+  past: EditorSnapshot[]
+  future: EditorSnapshot[]
+}
+
+type EditorClipboard =
+  | { kind: "area"; area: ScreenshotArea; pasteCount: number; token: string }
+  | { kind: "element"; element: CanvasElement; pasteCount: number; token: string }
+
 type CanvasElementChange = Partial<ImageElement> | Partial<ShapeElement> | Partial<TextElement>
+
+const HISTORY_LIMIT = 100
+const APP_CLIPBOARD_MIME = "application/x-appshot"
+let editorClipboard: EditorClipboard | null = null
 
 export function SetEditor({ assets, set, onOpenAssets, onSetChange }: SetEditorProps) {
   const [workingSet, setWorkingSet] = useState(set)
@@ -73,11 +94,19 @@ export function SetEditor({ assets, set, onOpenAssets, onSetChange }: SetEditorP
   const [contextMenu, setContextMenu] = useState<ObjectContextMenuState | null>(null)
   const [saveState, setSaveState] = useState<"saved" | "saving" | "error">("saved")
   const [error, setError] = useState<string | null>(null)
+  const [, setHistoryRevision] = useState(0)
   const currentSet = useRef(set)
+  const selectedAreaIdRef = useRef(selectedAreaId)
+  const selectedElementIdRef = useRef(selectedElementId)
+  const history = useRef<EditorHistory>({ past: [], future: [] })
+  const historyGroup = useRef<string | null>(null)
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const persistRevision = useRef(0)
   const contextMenuRef = useRef<HTMLDivElement>(null)
   const assetPickerRef = useRef<HTMLDivElement>(null)
+
+  selectedAreaIdRef.current = selectedAreaId
+  selectedElementIdRef.current = selectedElementId
 
   useEffect(() => {
     currentSet.current = set
@@ -85,6 +114,9 @@ export function SetEditor({ assets, set, onOpenAssets, onSetChange }: SetEditorP
     setSelectedAreaId(set.areas[0].id)
     setSelectedElementId(null)
     setAssetPickerOpen(false)
+    history.current = { past: [], future: [] }
+    historyGroup.current = null
+    setHistoryRevision((revision) => revision + 1)
   }, [set.id])
 
   useEffect(() => {
@@ -117,6 +149,8 @@ export function SetEditor({ assets, set, onOpenAssets, onSetChange }: SetEditorP
   const contextElementIndex = contextElement && contextArea
     ? contextArea.elements.findIndex((element) => element.id === contextElement.id)
     : -1
+  const canUndo = history.current.past.length > 0
+  const canRedo = history.current.future.length > 0
 
   useEffect(() => {
     if (!contextMenu) return
@@ -160,6 +194,19 @@ export function SetEditor({ assets, set, onOpenAssets, onSetChange }: SetEditorP
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
+      const key = event.key.toLowerCase()
+      const commandKey = event.metaKey || event.ctrlKey
+      if (!isEditableTarget(event.target) && commandKey && !event.altKey && key === "z") {
+        event.preventDefault()
+        if (event.shiftKey) redo()
+        else undo()
+        return
+      }
+      if (!isEditableTarget(event.target) && event.ctrlKey && !event.metaKey && !event.altKey && key === "y") {
+        event.preventDefault()
+        redo()
+        return
+      }
       if (!selectedElementId || isEditableTarget(event.target)) return
       if (event.key === "Backspace" || event.key === "Delete") {
         event.preventDefault()
@@ -173,9 +220,144 @@ export function SetEditor({ assets, set, onOpenAssets, onSetChange }: SetEditorP
     }
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [selectedArea.id, selectedElementId])
+  }, [selectedArea.id, selectedElementId, workingSet])
 
-  function setDraft(next: ScreenshotSet) {
+  useEffect(() => {
+    function handleCopy(event: ClipboardEvent) {
+      if (isEditableTarget(event.target)) return
+      const clipboard = copySelection()
+      event.clipboardData?.setData(APP_CLIPBOARD_MIME, clipboard.token)
+      event.clipboardData?.setData("text/plain", clipboardLabel(clipboard))
+      event.preventDefault()
+    }
+
+    function handlePaste(event: ClipboardEvent) {
+      if (isEditableTarget(event.target) || !editorClipboard) return
+      if (event.clipboardData?.getData(APP_CLIPBOARD_MIME) !== editorClipboard.token) return
+      event.preventDefault()
+      pasteSelection()
+    }
+
+    window.addEventListener("copy", handleCopy)
+    window.addEventListener("paste", handlePaste)
+    return () => {
+      window.removeEventListener("copy", handleCopy)
+      window.removeEventListener("paste", handlePaste)
+    }
+  }, [workingSet])
+
+  function captureSnapshot(): EditorSnapshot {
+    return {
+      areas: structuredClone(currentSet.current.areas),
+      selectedAreaId: selectedAreaIdRef.current,
+      selectedElementId: selectedElementIdRef.current,
+    }
+  }
+
+  function recordHistory(groupKey?: string) {
+    if (groupKey && historyGroup.current === groupKey) return
+    const past = [...history.current.past, captureSnapshot()].slice(-HISTORY_LIMIT)
+    history.current = { past, future: [] }
+    historyGroup.current = groupKey ?? null
+    setHistoryRevision((revision) => revision + 1)
+  }
+
+  function closeHistoryGroup() {
+    historyGroup.current = null
+  }
+
+  function restoreSnapshot(snapshot: EditorSnapshot) {
+    const next = { ...currentSet.current, areas: structuredClone(snapshot.areas) }
+    const selectedArea = next.areas.find((area) => area.id === snapshot.selectedAreaId) ?? next.areas[0]
+    const selectedElementId = selectedArea.elements.some((element) => element.id === snapshot.selectedElementId)
+      ? snapshot.selectedElementId
+      : null
+    setDraft(next, undefined, false)
+    setSelectedAreaId(selectedArea.id)
+    setSelectedElementId(selectedElementId)
+    setAssetPickerOpen(false)
+    setContextMenu(null)
+    void persist(next)
+  }
+
+  function undo() {
+    const previous = history.current.past.at(-1)
+    if (!previous) return
+    const past = history.current.past.slice(0, -1)
+    const future = [...history.current.future, captureSnapshot()].slice(-HISTORY_LIMIT)
+    history.current = { past, future }
+    closeHistoryGroup()
+    setHistoryRevision((revision) => revision + 1)
+    restoreSnapshot(previous)
+  }
+
+  function redo() {
+    const nextSnapshot = history.current.future.at(-1)
+    if (!nextSnapshot) return
+    const past = [...history.current.past, captureSnapshot()].slice(-HISTORY_LIMIT)
+    const future = history.current.future.slice(0, -1)
+    history.current = { past, future }
+    closeHistoryGroup()
+    setHistoryRevision((revision) => revision + 1)
+    restoreSnapshot(nextSnapshot)
+  }
+
+  function copySelection(): EditorClipboard {
+    const area = currentSet.current.areas.find((candidate) => candidate.id === selectedAreaIdRef.current)
+      ?? currentSet.current.areas[0]
+    const element = area.elements.find((candidate) => candidate.id === selectedElementIdRef.current)
+    editorClipboard = element
+      ? { kind: "element", element: structuredClone(element), pasteCount: 0, token: crypto.randomUUID() }
+      : { kind: "area", area: structuredClone(area), pasteCount: 0, token: crypto.randomUUID() }
+    return editorClipboard
+  }
+
+  function pasteSelection() {
+    if (!editorClipboard) return
+    const targetArea = currentSet.current.areas.find((area) => area.id === selectedAreaIdRef.current)
+      ?? currentSet.current.areas[0]
+    editorClipboard.pasteCount += 1
+
+    if (editorClipboard.kind === "element") {
+      const source = editorClipboard.element
+      const offset = Math.round(currentSet.current.canvas.width * 0.025 * editorClipboard.pasteCount)
+      const copy: CanvasElement = {
+        ...structuredClone(source),
+        id: `element-${crypto.randomUUID()}`,
+        x: clamp(source.x + offset, 0, Math.max(0, currentSet.current.canvas.width - source.width)),
+        y: clamp(source.y + offset, 0, Math.max(0, currentSet.current.canvas.height - source.height)),
+      }
+      addElement(targetArea.id, copy)
+      return
+    }
+
+    const source = editorClipboard.area
+    const sourceIndex = currentSet.current.areas.findIndex((area) => area.id === targetArea.id)
+    const copy: ScreenshotArea = {
+      ...structuredClone(source),
+      id: `area-${crypto.randomUUID()}`,
+      name: editorClipboard.pasteCount === 1
+        ? `${source.name} copy`
+        : `${source.name} copy ${editorClipboard.pasteCount}`,
+      elements: source.elements.map((element) => ({
+        ...structuredClone(element),
+        id: `element-${crypto.randomUUID()}`,
+      })),
+    }
+    const areas = [...currentSet.current.areas]
+    areas.splice(sourceIndex + 1, 0, copy)
+    const next = { ...currentSet.current, areas }
+    setDraft(next)
+    setSelectedAreaId(copy.id)
+    setSelectedElementId(null)
+    setAssetPickerOpen(false)
+    setContextMenu(null)
+    void persist(next)
+  }
+
+  function setDraft(next: ScreenshotSet, historyGroupKey?: string, record = true) {
+    if (record && historyGroupKey !== undefined) recordHistory(historyGroupKey)
+    else if (record && next !== currentSet.current) recordHistory()
     currentSet.current = next
     setWorkingSet(next)
   }
@@ -190,6 +372,7 @@ export function SetEditor({ assets, set, onOpenAssets, onSetChange }: SetEditorP
   }
 
   async function persist(next = currentSet.current) {
+    closeHistoryGroup()
     if (persistTimer.current) {
       clearTimeout(persistTimer.current)
       persistTimer.current = null
@@ -217,25 +400,30 @@ export function SetEditor({ assets, set, onOpenAssets, onSetChange }: SetEditorP
     }
   }
 
-  function updateArea(areaId: string, update: (area: ScreenshotArea) => ScreenshotArea): ScreenshotSet {
+  function updateArea(areaId: string, update: (area: ScreenshotArea) => ScreenshotArea, historyGroupKey?: string): ScreenshotSet {
     const next = {
       ...currentSet.current,
       areas: currentSet.current.areas.map((area) => area.id === areaId ? update(area) : area),
     }
-    setDraft(next)
+    setDraft(next, historyGroupKey)
     return next
   }
 
-  function updateElement(areaId: string, elementId: string, update: (element: CanvasElement) => CanvasElement): ScreenshotSet {
+  function updateElement(areaId: string, elementId: string, update: (element: CanvasElement) => CanvasElement, historyGroupKey?: string): ScreenshotSet {
     return updateArea(areaId, (area) => ({
       ...area,
       elements: area.elements.map((element) => element.id === elementId ? update(element) : element),
-    }))
+    }), historyGroupKey)
   }
 
   function updateSelectedElement(change: Partial<CanvasElement>) {
     if (!selectedElement) return
-    updateElement(selectedArea.id, selectedElement.id, (element) => ({ ...element, ...change } as CanvasElement))
+    updateElement(
+      selectedArea.id,
+      selectedElement.id,
+      (element) => ({ ...element, ...change } as CanvasElement),
+      `inspector:${selectedArea.id}:${selectedElement.id}`,
+    )
   }
 
   function previewSelectedElement(change: Partial<CanvasElement>) {
@@ -267,7 +455,7 @@ export function SetEditor({ assets, set, onOpenAssets, onSetChange }: SetEditorP
   }
 
   function changeElementFromCanvas(areaId: string, element: CanvasElement) {
-    updateElement(areaId, element.id, () => element)
+    updateElement(areaId, element.id, () => element, `canvas:${areaId}:${element.id}`)
     setSelectedAreaId(areaId)
     setSelectedElementId(element.id)
     schedulePersist()
@@ -462,21 +650,34 @@ export function SetEditor({ assets, set, onOpenAssets, onSetChange }: SetEditorP
 
   function updateContextElement(change: CanvasElementChange) {
     if (!contextMenu) return
-    updateElement(contextMenu.areaId, contextMenu.elementId, (element) => ({ ...element, ...change } as CanvasElement))
+    updateElement(
+      contextMenu.areaId,
+      contextMenu.elementId,
+      (element) => ({ ...element, ...change } as CanvasElement),
+      `context:${contextMenu.areaId}:${contextMenu.elementId}`,
+    )
     schedulePersist()
   }
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      <header className="flex h-[68px] shrink-0 items-center justify-between gap-4 border-b px-5">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <h1 className="truncate text-lg font-semibold">{workingSet.name}</h1>
-            <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{workingSet.locale}</span>
+      <header className="flex h-[68px] shrink-0 items-center gap-4 border-b px-5">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-2">
+              <h1 className="truncate text-lg font-semibold">{workingSet.name}</h1>
+              <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{workingSet.locale}</span>
+            </div>
+            <p className="mt-0.5 text-xs text-muted-foreground">{workingSet.device} · {workingSet.canvas.width} × {workingSet.canvas.height} px</p>
           </div>
-          <p className="mt-0.5 text-xs text-muted-foreground">{workingSet.device} · {workingSet.canvas.width} × {workingSet.canvas.height} px</p>
-        </div>
-        <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center rounded-lg border bg-background p-0.5">
+            <Button aria-label="Undo" disabled={!canUndo} size="icon-sm" title="Undo (Command/Ctrl Z)" variant="ghost" onClick={undo}>
+              <Undo2 className="size-4" />
+            </Button>
+            <Button aria-label="Redo" disabled={!canRedo} size="icon-sm" title="Redo (Command/Ctrl Shift Z)" variant="ghost" onClick={redo}>
+              <Redo2 className="size-4" />
+            </Button>
+          </div>
           <SaveState state={saveState} />
         </div>
       </header>
@@ -647,7 +848,7 @@ export function SetEditor({ assets, set, onOpenAssets, onSetChange }: SetEditorP
               ) : (
                 <InspectorSection title={`Screenshot ${workingSet.areas.findIndex((area) => area.id === selectedArea.id) + 1}`}>
                   <Field label="Name">
-                    <Input value={selectedArea.name} onChange={(event) => updateArea(selectedArea.id, (area) => ({ ...area, name: event.target.value }))} onBlur={() => void persist()} />
+                    <Input value={selectedArea.name} onChange={(event) => updateArea(selectedArea.id, (area) => ({ ...area, name: event.target.value }), `area:${selectedArea.id}`)} onBlur={() => void persist()} />
                   </Field>
                   <Field label="Background">
                     <div className="flex gap-2">
@@ -656,10 +857,10 @@ export function SetEditor({ assets, set, onOpenAssets, onSetChange }: SetEditorP
                         className="w-11 shrink-0 p-1"
                         type="color"
                         value={selectedArea.background}
-                        onChange={(event) => updateArea(selectedArea.id, (area) => ({ ...area, background: event.target.value }))}
+                        onChange={(event) => updateArea(selectedArea.id, (area) => ({ ...area, background: event.target.value }), `area:${selectedArea.id}`)}
                         onBlur={() => void persist()}
                       />
-                      <Input value={selectedArea.background} onChange={(event) => updateArea(selectedArea.id, (area) => ({ ...area, background: event.target.value }))} onBlur={() => void persist()} />
+                      <Input value={selectedArea.background} onChange={(event) => updateArea(selectedArea.id, (area) => ({ ...area, background: event.target.value }), `area:${selectedArea.id}`)} onBlur={() => void persist()} />
                     </div>
                   </Field>
                   <p className="text-xs leading-relaxed text-muted-foreground">Select an object to edit it. Drag to move, use the handles to resize, or double-click text to edit.</p>
@@ -1017,7 +1218,7 @@ function InspectorAction({ label, className, disabled, children, onClick }: { la
 
 function SaveState({ state }: { state: "saved" | "saving" | "error" }) {
   return (
-    <span className={cn("mr-1 flex items-center gap-1.5 text-xs text-muted-foreground", state === "error" && "text-destructive")}>
+    <span className={cn("mr-1 flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground", state === "error" && "text-destructive")}>
       {state === "saving" ? <LoaderCircle className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
       {state === "saving" ? "Saving" : state === "error" ? "Not saved" : "Saved"}
     </span>
@@ -1055,4 +1256,15 @@ async function imageDimensions(url: string): Promise<{ width: number; height: nu
 
 function isEditableTarget(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && Boolean(target.closest("input, textarea, select, [contenteditable='true']"))
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max)
+}
+
+function clipboardLabel(clipboard: EditorClipboard): string {
+  if (clipboard.kind === "area") return clipboard.area.name
+  if (clipboard.element.type === "text") return clipboard.element.text
+  if (clipboard.element.type === "image") return "Appshot image layer"
+  return "Appshot rectangle layer"
 }

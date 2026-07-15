@@ -109,7 +109,7 @@ export function App() {
   return (
     <div className="flex h-screen min-h-[640px] flex-col overflow-hidden bg-muted/30">
       <header className="shrink-0 border-b bg-background">
-        <div className="flex h-16 items-center justify-between px-5">
+        <div className="flex h-16 items-center px-5">
           <button className="flex items-center gap-3 text-left" type="button" onClick={() => navigate(defaultPath(project.sets))}>
             <span className="grid size-9 place-items-center rounded-lg bg-primary text-primary-foreground">
               <MonitorSmartphone className="size-5" />
@@ -119,10 +119,6 @@ export function App() {
               <span className="block text-xs text-muted-foreground">{project.config.appName}</span>
             </span>
           </button>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span className="size-2 rounded-full bg-emerald-500" />
-            Saved locally
-          </div>
         </div>
       </header>
 
