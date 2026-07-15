@@ -57,3 +57,17 @@ Useful project scripts:
 - `npm run typecheck` — check all TypeScript
 - `npm run build` — build the executable and static frontend
 - `npm run check` — typecheck and build
+
+## Codex development environment
+
+The repository includes shared Codex setup:
+
+- `AGENTS.md` documents the architecture, commands, and verification rules.
+- `.codex/config.toml` applies conservative repository-scoped permissions when
+  the project is trusted.
+- `.codex/environments/environment.toml` installs dependencies and builds new
+  worktrees, and adds **Run Appshot**, **Check**, and **Build** actions to the
+  Codex desktop app.
+
+Trust the project when Codex prompts you so that its project-local configuration
+and actions can load.

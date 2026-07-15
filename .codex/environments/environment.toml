@@ -1,0 +1,23 @@
+version = 1
+name = "Appshot"
+
+[setup]
+script = """
+npm ci
+npm run build
+"""
+
+[[actions]]
+name = "Run Appshot"
+icon = "run"
+command = "npm run dev"
+
+[[actions]]
+name = "Check"
+icon = "tool"
+command = "npm run check"
+
+[[actions]]
+name = "Build"
+icon = "tool"
+command = "npm run build"
