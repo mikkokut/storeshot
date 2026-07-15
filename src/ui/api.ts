@@ -1,11 +1,17 @@
 export async function request<T = unknown>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init)
   if (!response.ok) {
-    const value = (await response.json().catch(() => null)) as { error?: string } | null
-    throw new Error(value?.error ?? `Request failed with status ${response.status}`)
+    const value = (await response.json().catch(() => null)) as { error?: string; code?: string } | null
+    throw new RequestError(value?.error ?? `Request failed with status ${response.status}`, response.status, value?.code)
   }
   if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
+}
+
+export class RequestError extends Error {
+  constructor(message: string, readonly status: number, readonly code?: string) {
+    super(message)
+  }
 }
 
 export function messageFor(error: unknown): string {

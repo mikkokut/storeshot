@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { constants } from "node:fs"
 import { access, mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises"
 import path from "node:path"
@@ -78,6 +78,28 @@ export class ProjectStore {
 
   async deleteAsset(category: AssetCategory, filename: string): Promise<void> {
     await unlink(this.resolveAsset(category, filename))
+  }
+
+  async addAsset(category: string, filename: string, contents: Buffer): Promise<void> {
+    const target = this.resolveAsset(category, filename)
+    const incomingHash = hash(contents)
+
+    for (const assetCategory of ASSET_CATEGORIES) {
+      const directory = path.join(this.assetsPath, assetCategory)
+      const entries = await readdir(directory, { withFileTypes: true })
+      for (const entry of entries) {
+        if (!entry.isFile() || !supportedExtensions.has(path.extname(entry.name).toLowerCase())) continue
+        const existing = await readFile(path.join(directory, entry.name))
+        if (hash(existing) === incomingHash) {
+          throw new DuplicateAssetError(`${assetCategory}/${entry.name}`)
+        }
+      }
+    }
+
+    await writeFile(target, contents, { flag: "wx" }).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "EEXIST") throw new AssetNameConflictError(filename, category)
+      throw error
+    })
   }
 
   resolveAsset(category: string, filename: string): string {
@@ -181,6 +203,22 @@ export class ProjectStore {
     if (!safeIdentifierPattern.test(id)) throw new Error("Unsupported set id")
     return path.join(this.setsPath, `${id}.json`)
   }
+}
+
+export class DuplicateAssetError extends Error {
+  constructor(readonly existingAssetId: string) {
+    super(`This file is already in the asset catalog as ${existingAssetId}`)
+  }
+}
+
+export class AssetNameConflictError extends Error {
+  constructor(filename: string, category: string) {
+    super(`An asset named ${filename} already exists in ${category}`)
+  }
+}
+
+function hash(contents: Buffer): string {
+  return createHash("sha256").update(contents).digest("hex")
 }
 
 function parseConfig(value: unknown): AppshotConfig {

@@ -1,11 +1,11 @@
 import { createReadStream } from "node:fs"
-import { readFile, stat, writeFile } from "node:fs/promises"
+import { readFile, stat } from "node:fs/promises"
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
 import path from "node:path"
 
 import type { ViteDevServer } from "vite"
 
-import { ProjectStore } from "./project-store.js"
+import { AssetNameConflictError, DuplicateAssetError, ProjectStore } from "./project-store.js"
 import type { AppshotConfig, AssetCategory, CreateSetInput, ScreenshotSet } from "./shared.js"
 
 const MAX_REQUEST_BYTES = 25 * 1024 * 1024
@@ -88,11 +88,19 @@ async function handleApiRequest(
       sendJson(response, 400, { error: "A category and filename are required" })
       return true
     }
-    const target = store.resolveAsset(category, filename)
-    await writeFile(target, await readBody(request), { flag: "wx" }).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === "EEXIST") throw new Error(`An asset named ${filename} already exists in ${category}`)
+    try {
+      await store.addAsset(category, filename, await readBody(request))
+    } catch (error) {
+      if (error instanceof DuplicateAssetError) {
+        sendJson(response, 409, { error: error.message, code: "DUPLICATE_ASSET" })
+        return true
+      }
+      if (error instanceof AssetNameConflictError) {
+        sendJson(response, 409, { error: error.message, code: "ASSET_NAME_CONFLICT" })
+        return true
+      }
       throw error
-    })
+    }
     sendJson(response, 201, await store.readProject())
     return true
   }

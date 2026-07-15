@@ -183,7 +183,7 @@ function Overview({ project, onNewSet, onOpenSet, onProjectChange }: {
 
   return (
     <div className="h-full overflow-auto">
-      <div className="mx-auto max-w-6xl space-y-8 p-8">
+      <div className="mx-auto max-w-7xl space-y-8 p-8">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Workspace</p>
@@ -195,7 +195,7 @@ function Overview({ project, onNewSet, onOpenSet, onProjectChange }: {
 
         {project.sets.length === 0 ? (
           <button
-            className="grid min-h-72 w-full place-items-center rounded-xl border border-dashed bg-background text-center shadow-sm transition-colors hover:bg-muted/30"
+            className="grid min-h-72 w-full place-items-center rounded-xl border border-dashed bg-muted/10 text-center transition-colors outline-none hover:bg-muted/30 focus-visible:border-foreground/40"
             type="button"
             onClick={onNewSet}
           >
