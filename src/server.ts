@@ -1,12 +1,12 @@
 import { createReadStream } from "node:fs"
-import { readFile, stat, unlink, writeFile } from "node:fs/promises"
+import { readFile, stat, writeFile } from "node:fs/promises"
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
 import path from "node:path"
 
 import type { ViteDevServer } from "vite"
 
 import { ProjectStore } from "./project-store.js"
-import type { AppshotConfig } from "./shared.js"
+import type { AppshotConfig, AssetCategory, CreateSetInput, ScreenshotSet } from "./shared.js"
 
 const MAX_REQUEST_BYTES = 25 * 1024 * 1024
 
@@ -35,12 +35,10 @@ export async function startServer(options: StartServerOptions) {
   const server = createServer(async (request, response) => {
     try {
       if (await handleApiRequest(request, response, store)) return
-
       if (vite) {
         vite.middlewares(request, response)
         return
       }
-
       await serveBuiltFrontend(request, response, path.join(options.packageRoot, "dist/ui"))
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unexpected error"
@@ -78,33 +76,32 @@ async function handleApiRequest(
   }
 
   if (request.method === "PATCH" && url.pathname === "/api/config") {
-    const body = await readJsonBody(request)
-    const config = await store.writeConfig(body as AppshotConfig)
+    const config = await store.writeConfig((await readJsonBody(request)) as AppshotConfig)
     sendJson(response, 200, config)
     return true
   }
 
-  if (request.method === "POST" && url.pathname === "/api/screenshots") {
+  if (request.method === "POST" && url.pathname === "/api/assets") {
+    const category = url.searchParams.get("category")
     const filename = url.searchParams.get("filename")
-    if (!filename) {
-      sendJson(response, 400, { error: "A filename is required" })
+    if (!category || !filename) {
+      sendJson(response, 400, { error: "A category and filename are required" })
       return true
     }
-
-    const target = store.resolveScreenshot(filename)
-    const body = await readBody(request)
-    await writeFile(target, body, { flag: "wx" }).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === "EEXIST") throw new Error(`A screenshot named ${filename} already exists`)
+    const target = store.resolveAsset(category, filename)
+    await writeFile(target, await readBody(request), { flag: "wx" }).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "EEXIST") throw new Error(`An asset named ${filename} already exists in ${category}`)
       throw error
     })
     sendJson(response, 201, await store.readProject())
     return true
   }
 
-  const screenshotMatch = url.pathname.match(/^\/api\/screenshots\/([^/]+)$/)
-  if (screenshotMatch) {
-    const filename = decodeURIComponent(screenshotMatch[1])
-    const target = store.resolveScreenshot(filename)
+  const assetMatch = url.pathname.match(/^\/api\/assets\/([^/]+)\/([^/]+)$/)
+  if (assetMatch) {
+    const category = decodeURIComponent(assetMatch[1]) as AssetCategory
+    const filename = decodeURIComponent(assetMatch[2])
+    const target = store.resolveAsset(category, filename)
 
     if (request.method === "GET") {
       const metadata = await stat(target)
@@ -118,7 +115,28 @@ async function handleApiRequest(
     }
 
     if (request.method === "DELETE") {
-      await unlink(target)
+      await store.deleteAsset(category, filename)
+      response.writeHead(204).end()
+      return true
+    }
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/sets") {
+    const set = await store.createSet((await readJsonBody(request)) as CreateSetInput)
+    sendJson(response, 201, set)
+    return true
+  }
+
+  const setMatch = url.pathname.match(/^\/api\/sets\/([^/]+)$/)
+  if (setMatch) {
+    const id = decodeURIComponent(setMatch[1])
+    if (request.method === "PUT") {
+      const set = await store.writeSet(id, (await readJsonBody(request)) as ScreenshotSet)
+      sendJson(response, 200, set)
+      return true
+    }
+    if (request.method === "DELETE") {
+      await store.deleteSet(id)
       response.writeHead(204).end()
       return true
     }
@@ -128,7 +146,6 @@ async function handleApiRequest(
     sendJson(response, 404, { error: "Not found" })
     return true
   }
-
   return false
 }
 
@@ -143,10 +160,7 @@ async function serveBuiltFrontend(request: IncomingMessage, response: ServerResp
     const metadata = await stat(target)
     if (!metadata.isFile()) throw new Error("Not a file")
     const body = await readFile(target)
-    response.writeHead(200, {
-      "Content-Type": contentTypeFor(target),
-      "Content-Length": body.length,
-    })
+    response.writeHead(200, { "Content-Type": contentTypeFor(target), "Content-Length": body.length })
     response.end(body)
   } catch {
     const body = await readFile(path.join(uiDirectory, "index.html"))
@@ -167,14 +181,12 @@ async function readJsonBody(request: IncomingMessage): Promise<unknown> {
 async function readBody(request: IncomingMessage): Promise<Buffer> {
   const chunks: Buffer[] = []
   let size = 0
-
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
     size += buffer.length
     if (size > MAX_REQUEST_BYTES) throw new Error("Request is larger than 25 MB")
     chunks.push(buffer)
   }
-
   return Buffer.concat(chunks)
 }
 
@@ -189,22 +201,13 @@ function sendJson(response: ServerResponse, status: number, value: unknown) {
 
 function contentTypeFor(filename: string): string {
   switch (path.extname(filename).toLowerCase()) {
-    case ".html":
-      return "text/html; charset=utf-8"
-    case ".js":
-      return "text/javascript; charset=utf-8"
-    case ".css":
-      return "text/css; charset=utf-8"
-    case ".svg":
-      return "image/svg+xml"
-    case ".png":
-      return "image/png"
+    case ".html": return "text/html; charset=utf-8"
+    case ".js": return "text/javascript; charset=utf-8"
+    case ".css": return "text/css; charset=utf-8"
+    case ".png": return "image/png"
     case ".jpg":
-    case ".jpeg":
-      return "image/jpeg"
-    case ".webp":
-      return "image/webp"
-    default:
-      return "application/octet-stream"
+    case ".jpeg": return "image/jpeg"
+    case ".webp": return "image/webp"
+    default: return "application/octet-stream"
   }
 }

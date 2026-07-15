@@ -1,17 +1,22 @@
-import { useEffect, useRef, useState } from "react"
-import { FolderOpen, ImagePlus, LoaderCircle, MonitorSmartphone, Trash2 } from "lucide-react"
+import { useEffect, useState, type FormEvent } from "react"
+import { FolderOpen, Image, LayoutGrid, LoaderCircle, MonitorSmartphone, Plus, Settings2 } from "lucide-react"
 
+import { AssetsView } from "@/AssetsView"
+import { CreateSetForm } from "@/CreateSetForm"
+import { request, messageFor } from "@/api"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import type { AppshotProject } from "../shared"
+import { cn } from "@/lib/utils"
+import { SetEditor } from "@/SetEditor"
+import type { AppshotProject, ScreenshotSet } from "../shared"
+
+type Page = "overview" | "assets" | "new-set" | string
 
 export function App() {
   const [project, setProject] = useState<AppshotProject | null>(null)
-  const [appName, setAppName] = useState("")
+  const [page, setPage] = useState<Page>("overview")
   const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const fileInput = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     void refresh()
@@ -21,62 +26,19 @@ export function App() {
     try {
       const nextProject = await request<AppshotProject>("/api/project")
       setProject(nextProject)
-      setAppName(nextProject.config.appName)
       setError(null)
     } catch (nextError) {
       setError(messageFor(nextError))
     }
   }
 
-  async function saveConfig(event: React.FormEvent) {
-    event.preventDefault()
-    if (!project) return
-
-    setBusy(true)
-    try {
-      await request("/api/config", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...project.config, appName }),
-      })
-      await refresh()
-    } catch (nextError) {
-      setError(messageFor(nextError))
-    } finally {
-      setBusy(false)
-    }
+  function updateSet(set: ScreenshotSet) {
+    setProject((current) => current && ({ ...current, sets: current.sets.map((item) => item.id === set.id ? set : item) }))
   }
 
-  async function uploadScreenshot(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    if (!file) return
-
-    setBusy(true)
-    try {
-      await request(`/api/screenshots?filename=${encodeURIComponent(file.name)}`, {
-        method: "POST",
-        headers: { "Content-Type": file.type || "application/octet-stream" },
-        body: file,
-      })
-      await refresh()
-    } catch (nextError) {
-      setError(messageFor(nextError))
-    } finally {
-      event.target.value = ""
-      setBusy(false)
-    }
-  }
-
-  async function removeScreenshot(name: string) {
-    setBusy(true)
-    try {
-      await request(`/api/screenshots/${encodeURIComponent(name)}`, { method: "DELETE" })
-      await refresh()
-    } catch (nextError) {
-      setError(messageFor(nextError))
-    } finally {
-      setBusy(false)
-    }
+  function createdSet(set: ScreenshotSet) {
+    setProject((current) => current && ({ ...current, sets: [...current.sets, set] }))
+    setPage(set.id)
   }
 
   if (!project) {
@@ -90,140 +52,188 @@ export function App() {
     )
   }
 
+  const selectedSet = project.sets.find((set) => set.id === page)
+  const assetCount = Object.values(project.assets).reduce((total, assets) => total + assets.length, 0)
+
   return (
-    <div className="min-h-screen bg-muted/30">
-      <header className="border-b bg-background">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-3">
-            <div className="grid size-9 place-items-center rounded-lg bg-primary text-primary-foreground">
+    <div className="flex h-screen min-h-[640px] flex-col overflow-hidden bg-muted/30">
+      <header className="shrink-0 border-b bg-background">
+        <div className="flex h-16 items-center justify-between px-5">
+          <button className="flex items-center gap-3 text-left" type="button" onClick={() => setPage("overview")}>
+            <span className="grid size-9 place-items-center rounded-lg bg-primary text-primary-foreground">
               <MonitorSmartphone className="size-5" />
-            </div>
-            <div>
-              <p className="font-semibold leading-tight">Appshot</p>
-              <p className="text-xs text-muted-foreground">Local screenshot workspace</p>
-            </div>
-          </div>
+            </span>
+            <span>
+              <span className="block font-semibold leading-tight">Appshot</span>
+              <span className="block text-xs text-muted-foreground">{project.config.appName}</span>
+            </span>
+          </button>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span className="size-2 rounded-full bg-emerald-500" />
-            Local only
+            Saved locally
           </div>
         </div>
       </header>
 
-      <main className="mx-auto grid max-w-6xl gap-6 px-6 py-8 lg:grid-cols-[280px_1fr]">
-        <Card className="h-fit">
-          <CardHeader>
-            <CardTitle>Project</CardTitle>
-            <CardDescription>Stored in appshot.json</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form className="space-y-4" onSubmit={saveConfig}>
-              <label className="block space-y-2">
-                <span className="text-sm font-medium">App name</span>
-                <Input value={appName} onChange={(event) => setAppName(event.target.value)} />
-              </label>
-              <div className="space-y-2">
-                <span className="text-sm font-medium">Platform</span>
-                <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">iOS</div>
-              </div>
-              <Button className="w-full" disabled={busy || !appName.trim()} type="submit">
-                Save configuration
-              </Button>
-            </form>
-            <div className="mt-5 flex items-start gap-2 border-t pt-4 text-xs text-muted-foreground">
+      <div className="flex min-h-0 flex-1">
+        <aside className="flex w-64 shrink-0 flex-col border-r bg-background p-3">
+          <nav className="space-y-1">
+            <SidebarButton active={page === "overview"} icon={LayoutGrid} label="Screenshot sets" onClick={() => setPage("overview")} />
+            <SidebarButton active={page === "assets"} icon={Image} label="Asset catalog" badge={assetCount} onClick={() => setPage("assets")} />
+          </nav>
+
+          <div className="mt-5 flex items-center justify-between px-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Sets</p>
+            <Button aria-label="New screenshot set" size="icon" variant="ghost" onClick={() => setPage("new-set")}>
+              <Plus className="size-4" />
+            </Button>
+          </div>
+          <div className="mt-1 min-h-0 flex-1 space-y-1 overflow-auto">
+            {project.sets.length === 0 ? (
+              <p className="px-2 py-3 text-xs leading-relaxed text-muted-foreground">No sets yet. Create one for each language and device.</p>
+            ) : project.sets.map((set) => (
+              <button
+                className={cn(
+                  "w-full rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-muted",
+                  page === set.id && "bg-muted",
+                )}
+                key={set.id}
+                type="button"
+                onClick={() => setPage(set.id)}
+              >
+                <span className="block truncate text-sm font-medium">{set.name}</span>
+                <span className="mt-0.5 block truncate text-xs text-muted-foreground">{set.locale} · {set.device}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="border-t px-2 pt-3 text-xs text-muted-foreground">
+            <div className="flex items-start gap-2">
               <FolderOpen className="mt-0.5 size-3.5 shrink-0" />
               <span className="min-w-0 break-all">{project.directory}</span>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </aside>
 
-        <Card>
-          <CardHeader className="flex-row items-start justify-between space-y-0">
-            <div className="space-y-1.5">
-              <CardTitle>Screenshots</CardTitle>
-              <CardDescription>
-                {project.screenshots.length === 0
-                  ? "Add the first screenshot to this project."
-                  : `${project.screenshots.length} local asset${project.screenshots.length === 1 ? "" : "s"}`}
-              </CardDescription>
-            </div>
-            <Input
-              ref={fileInput}
-              className="hidden"
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              onChange={uploadScreenshot}
+        <main className="min-w-0 flex-1">
+          {page === "overview" && <Overview project={project} onNewSet={() => setPage("new-set")} onOpenSet={setPage} onProjectChange={setProject} />}
+          {page === "assets" && <AssetsView project={project} onProjectChange={setProject} />}
+          {page === "new-set" && <CreateSetForm onCancel={() => setPage("overview")} onCreate={createdSet} />}
+          {selectedSet && (
+            <SetEditor
+              assets={project.assets}
+              set={selectedSet}
+              onDelete={async () => {
+                await refresh()
+                setPage("overview")
+              }}
+              onOpenAssets={() => setPage("assets")}
+              onSetChange={updateSet}
             />
-            <Button disabled={busy} onClick={() => fileInput.current?.click()}>
-              <ImagePlus className="size-4" />
-              Add screenshot
-            </Button>
-          </CardHeader>
-          <CardContent>
-            {error && <p className="mb-4 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
-
-            {project.screenshots.length === 0 ? (
-              <button
-                className="grid min-h-80 w-full place-items-center rounded-lg border border-dashed bg-muted/20 text-center transition-colors hover:bg-muted/40"
-                type="button"
-                onClick={() => fileInput.current?.click()}
-              >
-                <span className="space-y-3">
-                  <span className="mx-auto grid size-12 place-items-center rounded-full border bg-background shadow-sm">
-                    <ImagePlus className="size-5 text-muted-foreground" />
-                  </span>
-                  <span className="block text-sm font-medium">Choose a PNG, JPEG, or WebP image</span>
-                  <span className="block text-xs text-muted-foreground">Files stay in the screenshots folder.</span>
-                </span>
-              </button>
-            ) : (
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {project.screenshots.map((screenshot) => (
-                  <article className="group overflow-hidden rounded-lg border bg-background" key={screenshot.name}>
-                    <div className="grid aspect-[9/16] place-items-center overflow-hidden bg-muted">
-                      <img className="h-full w-full object-contain" src={screenshot.url} alt={screenshot.name} />
-                    </div>
-                    <div className="flex items-center justify-between gap-2 p-3">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium" title={screenshot.name}>{screenshot.name}</p>
-                        <p className="text-xs text-muted-foreground">{formatBytes(screenshot.size)}</p>
-                      </div>
-                      <Button
-                        aria-label={`Delete ${screenshot.name}`}
-                        disabled={busy}
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => removeScreenshot(screenshot.name)}
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </main>
+          )}
+        </main>
+      </div>
     </div>
   )
 }
 
-async function request<T = unknown>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init)
-  if (!response.ok) {
-    const value = (await response.json().catch(() => null)) as { error?: string } | null
-    throw new Error(value?.error ?? `Request failed with status ${response.status}`)
+function SidebarButton({ active, icon: Icon, label, badge, onClick }: {
+  active: boolean
+  icon: typeof LayoutGrid
+  label: string
+  badge?: number
+  onClick: () => void
+}) {
+  return (
+    <button
+      className={cn("flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium hover:bg-muted", active && "bg-muted")}
+      type="button"
+      onClick={onClick}
+    >
+      <Icon className="size-4 text-muted-foreground" />
+      <span>{label}</span>
+      {badge !== undefined && <span className="ml-auto rounded-full bg-muted-foreground/10 px-2 py-0.5 text-xs text-muted-foreground">{badge}</span>}
+    </button>
+  )
+}
+
+function Overview({ project, onNewSet, onOpenSet, onProjectChange }: {
+  project: AppshotProject
+  onNewSet: () => void
+  onOpenSet: (id: string) => void
+  onProjectChange: (project: AppshotProject) => void
+}) {
+  const [appName, setAppName] = useState(project.config.appName)
+  const [busy, setBusy] = useState(false)
+
+  async function saveProject(event: FormEvent) {
+    event.preventDefault()
+    setBusy(true)
+    try {
+      await request("/api/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...project.config, appName }),
+      })
+      onProjectChange({ ...project, config: { ...project.config, appName } })
+    } finally {
+      setBusy(false)
+    }
   }
-  if (response.status === 204) return undefined as T
-  return response.json() as Promise<T>
-}
 
-function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : "Something went wrong"
-}
+  return (
+    <div className="h-full overflow-auto">
+      <div className="mx-auto max-w-6xl space-y-8 p-8">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Workspace</p>
+            <h1 className="text-2xl font-semibold tracking-tight">Screenshot sets</h1>
+            <p className="mt-1 text-sm text-muted-foreground">One editable set for every language and device combination.</p>
+          </div>
+          <Button onClick={onNewSet}><Plus className="size-4" />New set</Button>
+        </div>
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  return `${(bytes / 1024).toFixed(1)} KB`
+        {project.sets.length === 0 ? (
+          <button
+            className="grid min-h-72 w-full place-items-center rounded-xl border border-dashed bg-background text-center shadow-sm transition-colors hover:bg-muted/30"
+            type="button"
+            onClick={onNewSet}
+          >
+            <span className="space-y-3">
+              <span className="mx-auto grid size-12 place-items-center rounded-full bg-primary text-primary-foreground"><Plus className="size-5" /></span>
+              <span className="block text-sm font-semibold">Create your first screenshot set</span>
+              <span className="block text-xs text-muted-foreground">For example: English · iPhone</span>
+            </span>
+          </button>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {project.sets.map((set) => (
+              <button className="rounded-xl border bg-background p-5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md" key={set.id} type="button" onClick={() => onOpenSet(set.id)}>
+                <div className="mb-7 flex items-center justify-between">
+                  <span className="grid size-10 place-items-center rounded-lg bg-muted"><MonitorSmartphone className="size-5 text-muted-foreground" /></span>
+                  <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">{set.areas.length} area{set.areas.length === 1 ? "" : "s"}</span>
+                </div>
+                <p className="font-semibold">{set.name}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{set.locale} · {set.device}</p>
+                <p className="mt-4 text-xs text-muted-foreground">{set.canvas.width} × {set.canvas.height} px</p>
+              </button>
+            ))}
+          </div>
+        )}
+
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2"><Settings2 className="size-4" /><CardTitle>Project settings</CardTitle></div>
+            <CardDescription>Stored in appshot.json</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form className="flex max-w-lg items-end gap-3" onSubmit={saveProject}>
+              <label className="flex-1 space-y-2"><span className="text-sm font-medium">App name</span><Input value={appName} onChange={(event) => setAppName(event.target.value)} /></label>
+              <Button disabled={busy || !appName.trim()} type="submit">Save</Button>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  )
 }

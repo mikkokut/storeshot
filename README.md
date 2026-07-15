@@ -1,8 +1,8 @@
 # Appshot
 
-Appshot is a local-first TypeScript CLI for managing app store screenshots. This
-repository contains the smallest usable foundation: a CLI, a local file store,
-and a React + shadcn/ui-style workspace.
+Appshot is a local-first TypeScript CLI for creating and managing app store
+screenshots. It combines a reusable asset catalog with language/device-specific
+screenshot sets and an editable multi-area canvas.
 
 ## Start developing
 
@@ -11,9 +11,10 @@ npm install
 npm run dev
 ```
 
-The development command runs the CLI against this directory at
-`http://localhost:4173`. The CLI process restarts when server-side TypeScript
-changes, while Vite hot-reloads frontend changes.
+The development command runs the CLI against the ignored `playground/` folder
+at `http://localhost:4173`. The CLI process restarts when server-side TypeScript
+changes, while Vite hot-reloads frontend changes. Appshot-managed files never
+pollute the CLI repository root.
 
 To exercise the command against a separate project folder:
 
@@ -36,13 +37,33 @@ Running `appshot dev` creates these files in the selected directory:
 ```text
 my-screenshot-project/
 ├── appshot.json
-└── screenshots/
-    ├── home.png
-    └── settings.png
+├── assets/
+│   ├── screenshots/
+│   │   ├── home.png
+│   │   └── settings.png
+│   ├── brand/
+│   ├── logos/
+│   └── other/
+└── sets/
+    ├── english-iphone-a1b2c3d4.json
+    └── finnish-iphone-e5f6g7h8.json
 ```
 
-The browser UI reads and writes only these local files. There is no account,
+Each set describes one language/device combination, its output dimensions, its
+ordered screenshot areas, and the text/image layers placed on those areas. The
+browser UI reads and writes only these local files. There is no account,
 database, cloud service, or remote backend.
+
+## Current editor features
+
+- Asset catalog categories for raw screenshots, brand artwork, logos, and other
+  reusable images
+- Separate screenshot sets per locale and device
+- Multiple ordered App Store screenshot areas in each set
+- Editable area names and background colors
+- Movable text and image layers with pixel-based geometry
+- Text content, size, weight, color, alignment, and image-fit controls
+- Automatic persistence to readable JSON files
 
 ## Commands
 

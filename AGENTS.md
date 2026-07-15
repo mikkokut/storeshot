@@ -4,14 +4,15 @@
 
 Appshot is a local-first TypeScript CLI for managing app store screenshots.
 Running `appshot dev` serves a React workspace for the selected directory. All
-project data remains in `appshot.json` and `screenshots/`; do not introduce a
-remote backend, account system, or database unless the user explicitly asks for
-one.
+project data remains in `appshot.json`, `assets/`, and `sets/`; do not introduce
+a remote backend, account system, or database unless the user explicitly asks
+for one.
 
 ## Development commands
 
 - Install exact dependencies with `npm ci`.
-- Start the watch-mode CLI and Vite UI with `npm run dev`.
+- Start the watch-mode CLI and Vite UI against the ignored `playground/`
+  project with `npm run dev`.
 - Run the unbuilt CLI against another folder with
   `npm run appshot -- dev /path/to/project --no-open`.
 - Type-check with `npm run typecheck`.
@@ -25,7 +26,8 @@ Use Node.js 22.12 or newer and npm. Keep `package-lock.json` synchronized with
 
 - `src/cli.ts` defines the `appshot` command and its options.
 - `src/server.ts` contains the local HTTP service and file-backed API.
-- `src/project-store.ts` owns `appshot.json` and screenshot asset access.
+- `src/project-store.ts` owns `appshot.json`, the asset catalog, and screenshot
+  set documents.
 - `src/shared.ts` contains types shared by the CLI service and UI.
 - `src/ui/` contains the Vite, React, Tailwind CSS, and shadcn-style frontend.
 - `src/ui/components/ui/` contains source-owned shadcn UI primitives.
@@ -43,8 +45,9 @@ Use Node.js 22.12 or newer and npm. Keep `package-lock.json` synchronized with
 - Preserve strict TypeScript and shared request/response types.
 - Prefer small source-owned shadcn components over adding a large UI framework.
 - Avoid new production dependencies when a small Node or browser API is enough.
-- Never commit generated `dist/`, `node_modules/`, local `appshot.json`, or the
-  local `screenshots/` test folder.
+- Never commit generated `dist/`, `node_modules/`, or files inside the local
+  `playground/` project. Keep `playground/.gitkeep` so fresh checkouts have the
+  expected development target.
 
 ## Verification
 

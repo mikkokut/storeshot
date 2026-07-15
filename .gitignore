@@ -4,6 +4,6 @@ dist/
 .DS_Store
 *.log
 
-# Local Appshot project data created when testing from this repository.
-appshot.json
-screenshots/
+# Local Appshot project data used by the development CLI.
+playground/*
+!playground/.gitkeep
