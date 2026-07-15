@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react"
+import { lazy, Suspense, useEffect, useState, type FormEvent } from "react"
 import { FolderOpen, Image, LayoutGrid, LoaderCircle, MonitorSmartphone, Plus, Settings2 } from "lucide-react"
 
 import { AssetsView } from "@/AssetsView"
@@ -8,8 +8,12 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
-import { SetEditor } from "@/SetEditor"
 import type { AppshotProject, ScreenshotSet } from "../shared"
+
+const SetEditor = lazy(async () => {
+  const module = await import("@/SetEditor")
+  return { default: module.SetEditor }
+})
 
 type Page = "overview" | "assets" | "new-set" | string
 
@@ -120,16 +124,18 @@ export function App() {
           {page === "assets" && <AssetsView project={project} onProjectChange={setProject} />}
           {page === "new-set" && <CreateSetForm onCancel={() => setPage("overview")} onCreate={createdSet} />}
           {selectedSet && (
-            <SetEditor
-              assets={project.assets}
-              set={selectedSet}
-              onDelete={async () => {
-                await refresh()
-                setPage("overview")
-              }}
-              onOpenAssets={() => setPage("assets")}
-              onSetChange={updateSet}
-            />
+            <Suspense fallback={<div className="grid h-full place-items-center text-sm text-muted-foreground"><LoaderCircle className="mr-2 inline size-4 animate-spin" />Opening editor…</div>}>
+              <SetEditor
+                assets={project.assets}
+                set={selectedSet}
+                onDelete={async () => {
+                  await refresh()
+                  setPage("overview")
+                }}
+                onOpenAssets={() => setPage("assets")}
+                onSetChange={updateSet}
+              />
+            </Suspense>
           )}
         </main>
       </div>

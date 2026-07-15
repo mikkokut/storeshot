@@ -151,6 +151,8 @@ export class ProjectStore {
               width: Math.round(value.width * 0.84),
               height: Math.round(value.height * 0.2),
               rotation: 0,
+              opacity: 1,
+              fontFamily: "Geist Variable",
               fontSize: Math.max(48, Math.round(value.width * 0.09)),
               fontWeight: 700,
               color: "#ffffff",
@@ -290,6 +292,7 @@ function parseElement(value: unknown): CanvasElement {
     width: readDimension(value.width, "Element width"),
     height: readDimension(value.height, "Element height"),
     rotation: readNumber(value.rotation, "Element rotation"),
+    opacity: readOptionalRange(value.opacity, 1, 0, 1, "Element opacity"),
   }
 
   if (value.type === "image") {
@@ -308,10 +311,24 @@ function parseElement(value: unknown): CanvasElement {
       ...base,
       type: "text",
       text: typeof value.text === "string" ? value.text : "",
+      fontFamily: readOptionalString(value.fontFamily, "Geist Variable"),
       fontSize: readDimension(value.fontSize, "Font size"),
       fontWeight: Number(value.fontWeight) as 400 | 600 | 700 | 800,
       color,
       textAlign: value.textAlign,
+    }
+  }
+
+  if (value.type === "shape") {
+    if (value.shape !== "rectangle") throw new Error("Shape type is invalid")
+    const fill = readString(value.fill, "Shape fill")
+    if (!hexColorPattern.test(fill)) throw new Error("Shape fill must be a hex color")
+    return {
+      ...base,
+      type: "shape",
+      shape: value.shape,
+      fill,
+      cornerRadius: readOptionalRange(value.cornerRadius, 0, 0, 10_000, "Shape corner radius"),
     }
   }
 
@@ -327,6 +344,17 @@ function readString(value: unknown, name: string): string {
 function readNumber(value: unknown, name: string): number {
   if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(`${name} must be a number`)
   return value
+}
+
+function readOptionalRange(value: unknown, fallback: number, min: number, max: number, name: string): number {
+  if (value === undefined) return fallback
+  const result = readNumber(value, name)
+  if (result < min || result > max) throw new Error(`${name} is outside the supported range`)
+  return result
+}
+
+function readOptionalString(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.trim() ? value.trim() : fallback
 }
 
 function readDimension(value: unknown, name: string): number {

@@ -24,6 +24,7 @@ interface CanvasElementBase {
   width: number
   height: number
   rotation: number
+  opacity: number
 }
 
 export interface ImageElement extends CanvasElementBase {
@@ -35,13 +36,21 @@ export interface ImageElement extends CanvasElementBase {
 export interface TextElement extends CanvasElementBase {
   type: "text"
   text: string
+  fontFamily: string
   fontSize: number
   fontWeight: 400 | 600 | 700 | 800
   color: string
   textAlign: "left" | "center" | "right"
 }
 
-export type CanvasElement = ImageElement | TextElement
+export interface ShapeElement extends CanvasElementBase {
+  type: "shape"
+  shape: "rectangle"
+  fill: string
+  cornerRadius: number
+}
+
+export type CanvasElement = ImageElement | ShapeElement | TextElement
 
 export interface ScreenshotArea {
   id: string
