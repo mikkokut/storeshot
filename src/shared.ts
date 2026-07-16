@@ -41,6 +41,10 @@ interface CanvasElementBase {
   height: number
   rotation: number
   opacity: number
+  /** Mirrors the layer around its vertical axis. */
+  flipX?: boolean
+  /** Mirrors the layer around its horizontal axis. */
+  flipY?: boolean
 }
 
 export type ImageElementSource =

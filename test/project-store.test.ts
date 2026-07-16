@@ -70,6 +70,20 @@ test("set writes and metadata updates are serialized without losing canvas chang
   })
 })
 
+test("set writes preserve horizontal and vertical layer flips", async () => {
+  await withStore(async (store) => {
+    const created = await store.createSet({ name: "Flipped layers", locale: "en-US", device: "iPhone", width: 1290, height: 2796 })
+    created.areas[0].elements[0].flipX = true
+    created.areas[0].elements[0].flipY = true
+
+    await store.writeSet(created.id, created)
+
+    const saved = (await store.listSets()).find((set) => set.id === created.id)
+    assert.equal(saved?.areas[0].elements[0].flipX, true)
+    assert.equal(saved?.areas[0].elements[0].flipY, true)
+  })
+})
+
 test("duplicating a set gives every copied area and element a fresh id", async () => {
   await withStore(async (store) => {
     const source = await store.createSet({ name: "English iPhone", locale: "en-US", device: "iPhone", width: 1290, height: 2796 })

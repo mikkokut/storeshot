@@ -82,6 +82,8 @@ export function assetForElement(element: CanvasElement, assetLookup: Map<string,
 export function applyCanvasElement(object: FabricObject, element: CanvasElement, scale: number): void {
   object.set({
     angle: element.rotation,
+    flipX: element.flipX ?? false,
+    flipY: element.flipY ?? false,
     left: element.x * scale,
     opacity: element.opacity,
     originX: "left",

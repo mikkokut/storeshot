@@ -13,6 +13,8 @@ import {
   Columns2,
   Copy,
   Download,
+  FlipHorizontal2,
+  FlipVertical2,
   Image as ImageIcon,
   ImagePlus,
   LoaderCircle,
@@ -1195,6 +1197,8 @@ export function SetEditor({ assets, set, onOpenAssets, onSetChange }: SetEditorP
                     <InspectorAction label="Duplicate layer" onClick={duplicateElement}><Copy className="size-4" /></InspectorAction>
                     <InspectorAction label="Send backward" disabled={selectedElementIndex === 0} onClick={() => moveElementLayer(-1)}><ArrowDown className="size-4" /></InspectorAction>
                     <InspectorAction label="Bring forward" disabled={selectedElementIndex === selectedArea.elements.length - 1} onClick={() => moveElementLayer(1)}><ArrowUp className="size-4" /></InspectorAction>
+                    <InspectorAction label="Flip horizontally" onClick={() => { updateSelectedElement({ flipX: !selectedElement.flipX }); void persist() }}><FlipHorizontal2 className="size-4" /></InspectorAction>
+                    <InspectorAction label="Flip vertically" onClick={() => { updateSelectedElement({ flipY: !selectedElement.flipY }); void persist() }}><FlipVertical2 className="size-4" /></InspectorAction>
                     <Separator className="mx-1 ml-auto h-5" orientation="vertical" />
                     <InspectorAction className="text-destructive hover:text-destructive" label="Delete layer" onClick={deleteElement}><Trash2 className="size-4" /></InspectorAction>
                   </div>
@@ -1322,6 +1326,9 @@ function ObjectContextMenu({
         <ContextMenuItem className="h-8 gap-2 px-2 text-xs" disabled={elementIndex === areaLength - 1} onClick={() => onMove(elementIndex + 1)}><ArrowUp />Bring forward</ContextMenuItem>
         <ContextMenuItem className="h-8 gap-2 px-2 text-xs" disabled={elementIndex === 0} onClick={() => onMove(elementIndex - 1)}><ArrowDown />Send backward</ContextMenuItem>
         <ContextMenuItem className="h-8 gap-2 px-2 text-xs" disabled={elementIndex === 0} onClick={() => onMove(0)}><ChevronsDown />Send to back</ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem className="h-8 gap-2 px-2 text-xs" onClick={() => onUpdate({ flipX: !element.flipX })}><FlipHorizontal2 />Flip horizontally</ContextMenuItem>
+        <ContextMenuItem className="h-8 gap-2 px-2 text-xs" onClick={() => onUpdate({ flipY: !element.flipY })}><FlipVertical2 />Flip vertically</ContextMenuItem>
       </ContextMenuGroup>
 
       {element.type === "text" && (

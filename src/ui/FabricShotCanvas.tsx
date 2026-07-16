@@ -544,6 +544,8 @@ function readElement(object: FabricObject, element: CanvasElement, scale: number
     height: round(object.height * Math.abs(object.scaleY) / scale),
     rotation: round(object.angle ?? 0),
     opacity: round(object.opacity ?? 1, 3),
+    flipX: object.flipX,
+    flipY: object.flipY,
   }
 
   if (element.type === "text" && object instanceof Textbox) {
