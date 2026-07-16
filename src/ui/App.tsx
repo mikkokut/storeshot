@@ -1,29 +1,38 @@
 import { lazy, Suspense, useEffect, useId, useState, type FormEvent } from "react"
-import { FolderOpen, Image, LoaderCircle, MonitorSmartphone, Plus, Settings, Trash2, type LucideIcon } from "lucide-react"
+import { Copy, FolderOpen, Image, LoaderCircle, MonitorSmartphone, Settings, Trash2, type LucideIcon } from "lucide-react"
 
-import { AssetsView } from "@/AssetsView"
-import { CreateSetForm } from "@/CreateSetForm"
+import { CreateSetDialog } from "@/CreateSetForm"
 import { request, messageFor } from "@/api"
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Field, FieldLabel } from "@/components/ui/field"
+import { Field, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger } from "@/components/ui/popover"
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { DEVICE_PRESETS, deviceName, type DeviceName } from "@/device-presets"
+import { LocalePicker } from "@/LocalePicker"
 import { cn } from "@/lib/utils"
-import type { AppshotProject, ScreenshotSet, UpdateSetMetadataInput } from "../shared"
+import type { StoreShotProject, ScreenshotSet, UpdateSetMetadataInput } from "../shared"
 
 const SetEditor = lazy(async () => {
   const module = await import("@/SetEditor")
   return { default: module.SetEditor }
 })
 
+const AssetsView = lazy(async () => {
+  const module = await import("@/AssetsView")
+  return { default: module.AssetsView }
+})
+
 type AppRoute =
   | { kind: "assets" }
-  | { kind: "new-set" }
   | { kind: "set"; setId: string }
   | { kind: "unknown" }
 
 export function App() {
-  const [project, setProject] = useState<AppshotProject | null>(null)
+  const [project, setProject] = useState<StoreShotProject | null>(null)
   const [pathname, setPathname] = useState(() => window.location.pathname)
   const [error, setError] = useState<string | null>(null)
 
@@ -47,7 +56,7 @@ export function App() {
 
   async function refresh() {
     try {
-      const nextProject = await request<AppshotProject>("/api/project")
+      const nextProject = await request<StoreShotProject>("/api/project")
       setProject(nextProject)
       setError(null)
     } catch (nextError) {
@@ -90,6 +99,12 @@ export function App() {
     }
   }
 
+  async function duplicateSet(id: string) {
+    const duplicate = await request<ScreenshotSet>(`/api/sets/${id}/duplicate`, { method: "POST" })
+    setProject((current) => current && ({ ...current, sets: [...current.sets, duplicate] }))
+    navigate(setPath(duplicate.id))
+  }
+
   if (!project) {
     return (
       <main className="grid min-h-screen place-items-center bg-muted/30">
@@ -108,31 +123,31 @@ export function App() {
 
   return (
     <div className="flex h-screen min-h-[640px] flex-col overflow-hidden bg-muted/30">
-      <header className="shrink-0 border-b bg-background">
-        <div className="flex h-16 items-center px-5">
-          <button className="flex items-center gap-3 text-left" type="button" onClick={() => navigate(defaultPath(project.sets))}>
-            <span className="grid size-9 place-items-center rounded-lg bg-primary text-primary-foreground">
-              <MonitorSmartphone className="size-5" />
-            </span>
-            <span>
-              <span className="block font-semibold leading-tight">Appshot</span>
-              <span className="block text-xs text-muted-foreground">{project.config.appName}</span>
-            </span>
-          </button>
-        </div>
-      </header>
+      <ResizablePanelGroup className="min-h-0 flex-1" id="storeshot-shell" orientation="horizontal">
+        <ResizablePanel
+          defaultSize={256}
+          groupResizeBehavior="preserve-pixel-size"
+          id="project-sidebar"
+          maxSize={420}
+          minSize={200}
+        >
+        <aside className="flex h-full min-w-0 flex-col bg-background p-3">
+          <div className="-mx-3 -mt-3 mb-3 flex h-[68px] shrink-0 items-center border-b px-5">
+            <Button className="h-auto min-w-0 justify-start gap-3 p-0 text-left hover:bg-transparent" type="button" variant="ghost" onClick={() => navigate(defaultPath(project.sets))}>
+              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
+                <MonitorSmartphone className="size-5" />
+              </span>
+              <span className="truncate font-semibold leading-tight">{project.config.appName.trim() || "StoreShot"}</span>
+            </Button>
+          </div>
 
-      <div className="flex min-h-0 flex-1">
-        <aside className="flex w-64 shrink-0 flex-col border-r bg-background p-3">
           <nav className="space-y-1">
             <SidebarButton active={route.kind === "assets"} icon={Image} label="Asset catalog" badge={assetCount} onClick={() => navigate("/assets")} />
           </nav>
 
           <div className="mt-5 flex items-center justify-between px-2">
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Sets</p>
-            <Button aria-label="New screenshot set" size="icon" variant="ghost" onClick={() => navigate("/sets/new")}>
-              <Plus className="size-4" />
-            </Button>
+            <CreateSetDialog onCreate={createdSet} />
           </div>
           <div className="mt-1 min-h-0 flex-1 space-y-1 overflow-auto">
             {project.sets.length === 0 ? (
@@ -140,33 +155,41 @@ export function App() {
             ) : project.sets.map((set) => (
               <div
                 className={cn(
-                  "group flex w-full items-center rounded-lg transition-colors hover:bg-muted",
+                  "flex w-full items-center rounded-lg transition-colors hover:bg-muted",
                   selectedSet?.id === set.id && "bg-muted",
                 )}
                 key={set.id}
               >
-                <button className="min-w-0 flex-1 px-3 py-2.5 text-left" type="button" onClick={() => navigate(setPath(set.id))}>
+                <Button className="h-auto min-w-0 flex-1 justify-start px-3 py-2.5 text-left whitespace-normal hover:bg-transparent" type="button" variant="ghost" onClick={() => navigate(setPath(set.id))}>
                   <span className="block truncate text-sm font-medium">{set.name}</span>
                   <span className="mt-0.5 block truncate text-xs text-muted-foreground">{set.locale} · {set.device}</span>
-                </button>
+                </Button>
+                <SetDuplicateButton set={set} onDuplicate={duplicateSet} />
                 <SetSettingsPopover set={set} onDelete={deleteSet} onSave={saveSetMetadata} />
               </div>
             ))}
           </div>
 
-          <div className="border-t px-2 pt-3 text-xs text-muted-foreground">
+          <div className="-mx-3 border-t px-5 pt-3 text-xs text-muted-foreground">
             <div className="flex items-start gap-2">
               <FolderOpen className="mt-0.5 size-3.5 shrink-0" />
               <span className="min-w-0 break-all">{project.directory}</span>
             </div>
           </div>
         </aside>
+        </ResizablePanel>
 
-        <main className="min-w-0 flex-1">
-          {route.kind === "assets" && <AssetsView project={project} onProjectChange={setProject} />}
-          {route.kind === "new-set" && <CreateSetForm onCancel={() => navigate(project.sets[0] ? setPath(project.sets[0].id) : "/assets")} onCreate={createdSet} />}
+        <ResizableHandle aria-label="Resize project sidebar" />
+
+        <ResizablePanel id="project-workspace" minSize={520}>
+        <main className="h-full min-w-0">
+          {route.kind === "assets" && (
+            <Suspense fallback={<WorkspaceLoader label="Opening asset catalog…" />}>
+              <AssetsView project={project} onProjectChange={setProject} />
+            </Suspense>
+          )}
           {selectedSet && (
-            <Suspense fallback={<div className="grid h-full place-items-center text-sm text-muted-foreground"><LoaderCircle className="mr-2 inline size-4 animate-spin" />Opening editor…</div>}>
+            <Suspense fallback={<WorkspaceLoader label="Opening editor…" />}>
               <SetEditor
                 assets={project.assets}
                 set={selectedSet}
@@ -176,8 +199,60 @@ export function App() {
             </Suspense>
           )}
         </main>
-      </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
     </div>
+  )
+}
+
+function WorkspaceLoader({ label }: { label: string }) {
+  return <div className="grid h-full place-items-center text-sm text-muted-foreground"><span><LoaderCircle className="mr-2 inline size-4 animate-spin" />{label}</span></div>
+}
+
+function SetDuplicateButton({ set, onDuplicate }: {
+  set: ScreenshotSet
+  onDuplicate: (id: string) => Promise<void>
+}) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function duplicate() {
+    setBusy(true)
+    try {
+      await onDuplicate(set.id)
+    } catch (error) {
+      setError(messageFor(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <Button
+        aria-label={`Duplicate ${set.name}`}
+        className="text-muted-foreground hover:text-foreground focus-visible:text-foreground"
+        disabled={busy}
+        size="icon-sm"
+        title={`Duplicate ${set.name}`}
+        type="button"
+        variant="ghost"
+        onClick={() => void duplicate()}
+      >
+        {busy ? <LoaderCircle className="size-3.5 animate-spin" /> : <Copy className="size-3.5" />}
+      </Button>
+      <AlertDialog open={Boolean(error)} onOpenChange={(open) => { if (!open) setError(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Could not duplicate set</AlertDialogTitle>
+            <AlertDialogDescription>{error}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel render={<Button />}>Close</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }
 
@@ -189,9 +264,10 @@ function SetSettingsPopover({ set, onDelete, onSave }: {
   const [open, setOpen] = useState(false)
   const [name, setName] = useState(set.name)
   const [locale, setLocale] = useState(set.locale)
-  const [device, setDevice] = useState(set.device)
+  const [device, setDevice] = useState<DeviceName>(() => deviceName(set.device))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
   const nameId = useId()
   const localeId = useId()
   const deviceId = useId()
@@ -200,7 +276,7 @@ function SetSettingsPopover({ set, onDelete, onSave }: {
     if (nextOpen) {
       setName(set.name)
       setLocale(set.locale)
-      setDevice(set.device)
+      setDevice(deviceName(set.device))
       setError(null)
     }
     setOpen(nextOpen)
@@ -221,11 +297,11 @@ function SetSettingsPopover({ set, onDelete, onSave }: {
   }
 
   async function remove() {
-    if (!window.confirm(`Delete the set “${set.name}”?`)) return
     setBusy(true)
     setError(null)
     try {
       await onDelete(set.id)
+      setConfirmingDelete(false)
       setOpen(false)
     } catch (nextError) {
       setError(messageFor(nextError))
@@ -236,12 +312,13 @@ function SetSettingsPopover({ set, onDelete, onSave }: {
   const valid = name.trim() && locale.trim() && device.trim()
 
   return (
+    <>
     <Popover open={open} onOpenChange={changeOpen}>
       <PopoverTrigger
         render={
           <Button
             aria-label={`Settings for ${set.name}`}
-            className="mr-1 text-muted-foreground opacity-60 group-hover:opacity-100 aria-expanded:opacity-100 focus-visible:opacity-100"
+            className="mr-1 text-muted-foreground hover:text-foreground aria-expanded:text-foreground focus-visible:text-foreground"
             size="icon-sm"
             type="button"
             variant="ghost"
@@ -263,16 +340,25 @@ function SetSettingsPopover({ set, onDelete, onSave }: {
           <div className="grid grid-cols-2 gap-2">
             <Field className="gap-1.5">
               <FieldLabel htmlFor={localeId}>Locale</FieldLabel>
-              <Input id={localeId} value={locale} onChange={(event) => setLocale(event.target.value)} />
+              <LocalePicker id={localeId} value={locale} onValueChange={setLocale} />
             </Field>
             <Field className="gap-1.5">
               <FieldLabel htmlFor={deviceId}>Device</FieldLabel>
-              <Input id={deviceId} value={device} onChange={(event) => setDevice(event.target.value)} />
+              <Select value={device} onValueChange={(value) => setDevice(value as DeviceName)}>
+                <SelectTrigger className="w-full" id={deviceId}>
+                  <SelectValue>{device}</SelectValue>
+                </SelectTrigger>
+                <SelectContent align="start">
+                  {DEVICE_PRESETS.map((preset) => (
+                    <SelectItem key={preset.device} value={preset.device}>{preset.device}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </Field>
           </div>
-          {error && <p className="text-xs text-destructive">{error}</p>}
+          {error && <FieldError className="text-xs">{error}</FieldError>}
           <div className="flex items-center justify-between gap-2 pt-1">
-            <Button disabled={busy} size="sm" type="button" variant="destructive" onClick={() => void remove()}>
+            <Button disabled={busy} size="sm" type="button" variant="destructive" onClick={() => setConfirmingDelete(true)}>
               <Trash2 className="size-3.5" />Delete
             </Button>
             <Button disabled={busy || !valid} size="sm" type="submit">{busy ? "Saving…" : "Save"}</Button>
@@ -280,6 +366,19 @@ function SetSettingsPopover({ set, onDelete, onSave }: {
         </form>
       </PopoverContent>
     </Popover>
+    <AlertDialog open={confirmingDelete} onOpenChange={(nextOpen) => { if (!busy) setConfirmingDelete(nextOpen) }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete “{set.name}”?</AlertDialogTitle>
+          <AlertDialogDescription>This removes the set and its local screenshot document. Assets in the catalog are kept.</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel render={<Button disabled={busy} variant="outline" />}>Cancel</AlertDialogCancel>
+          <Button disabled={busy} variant="destructive" onClick={() => void remove()}>{busy ? "Deleting…" : "Delete set"}</Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   )
 }
 
@@ -291,22 +390,23 @@ function SidebarButton({ active, icon: Icon, label, badge, onClick }: {
   onClick: () => void
 }) {
   return (
-    <button
-      className={cn("flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium hover:bg-muted", active && "bg-muted")}
+    <Button
+      aria-pressed={active}
+      className="h-auto w-full justify-start gap-3 px-3 py-2 text-sm"
       type="button"
+      variant={active ? "secondary" : "ghost"}
       onClick={onClick}
     >
       <Icon className="size-4 text-muted-foreground" />
       <span>{label}</span>
-      {badge !== undefined && <span className="ml-auto rounded-full bg-muted-foreground/10 px-2 py-0.5 text-xs text-muted-foreground">{badge}</span>}
-    </button>
+      {badge !== undefined && <Badge className="ml-auto" variant="secondary">{badge}</Badge>}
+    </Button>
   )
 }
 
 function routeFromPath(pathname: string): AppRoute {
   const normalizedPath = normalizePath(pathname)
   if (normalizedPath === "/assets") return { kind: "assets" }
-  if (normalizedPath === "/sets/new") return { kind: "new-set" }
   const setMatch = normalizedPath.match(/^\/sets\/([^/]+)$/)
   if (!setMatch) return { kind: "unknown" }
   try {
@@ -316,16 +416,15 @@ function routeFromPath(pathname: string): AppRoute {
   }
 }
 
-function canonicalProjectPath(pathname: string, project: AppshotProject): string {
+function canonicalProjectPath(pathname: string, project: StoreShotProject): string {
   const route = routeFromPath(pathname)
   if (route.kind === "assets") return "/assets"
-  if (route.kind === "new-set") return "/sets/new"
   if (route.kind === "set" && project.sets.some((set) => set.id === route.setId)) return setPath(route.setId)
   return defaultPath(project.sets)
 }
 
 function defaultPath(sets: ScreenshotSet[]): string {
-  return sets[0] ? setPath(sets[0].id) : "/sets/new"
+  return sets[0] ? setPath(sets[0].id) : "/assets"
 }
 
 function setPath(id: string): string {

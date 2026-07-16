@@ -3,7 +3,9 @@ dist/
 .npm-cache/
 .DS_Store
 *.log
+/mockup-bundles/
+/element-bundles/
 
-# Local Appshot project data used by the development CLI.
+# Local StoreShot project data used by the development CLI.
 playground/*
 !playground/.gitkeep

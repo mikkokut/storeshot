@@ -1,5 +1,9 @@
 export async function request<T = unknown>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init)
+  const headers = new Headers(init?.headers)
+  if (typeof init?.body === "string" && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json")
+  }
+  const response = await fetch(url, { ...init, headers })
   if (!response.ok) {
     const value = (await response.json().catch(() => null)) as { error?: string; code?: string } | null
     throw new RequestError(value?.error ?? `Request failed with status ${response.status}`, response.status, value?.code)

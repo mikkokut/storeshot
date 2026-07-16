@@ -1,0 +1,61 @@
+export interface AppStoreLocale {
+  code: string
+  name: string
+}
+
+export const APP_STORE_LOCALES: AppStoreLocale[] = [
+  { code: "ar-SA", name: "Arabic" },
+  { code: "bn", name: "Bangla" },
+  { code: "ca", name: "Catalan" },
+  { code: "zh-Hans", name: "Chinese (Simplified)" },
+  { code: "zh-Hant", name: "Chinese (Traditional)" },
+  { code: "hr", name: "Croatian" },
+  { code: "cs", name: "Czech" },
+  { code: "da", name: "Danish" },
+  { code: "nl-NL", name: "Dutch" },
+  { code: "en-AU", name: "English (Australia)" },
+  { code: "en-CA", name: "English (Canada)" },
+  { code: "en-GB", name: "English (U.K.)" },
+  { code: "en-US", name: "English (U.S.)" },
+  { code: "fi", name: "Finnish" },
+  { code: "fr-FR", name: "French" },
+  { code: "fr-CA", name: "French (Canada)" },
+  { code: "de-DE", name: "German" },
+  { code: "el", name: "Greek" },
+  { code: "gu", name: "Gujarati" },
+  { code: "he", name: "Hebrew" },
+  { code: "hi", name: "Hindi" },
+  { code: "hu", name: "Hungarian" },
+  { code: "id", name: "Indonesian" },
+  { code: "it", name: "Italian" },
+  { code: "ja", name: "Japanese" },
+  { code: "kn", name: "Kannada" },
+  { code: "ko", name: "Korean" },
+  { code: "ms", name: "Malay" },
+  { code: "ml", name: "Malayalam" },
+  { code: "mr", name: "Marathi" },
+  { code: "no", name: "Norwegian" },
+  { code: "or", name: "Odia" },
+  { code: "pl", name: "Polish" },
+  { code: "pt-BR", name: "Portuguese (Brazil)" },
+  { code: "pt-PT", name: "Portuguese (Portugal)" },
+  { code: "pa", name: "Punjabi" },
+  { code: "ro", name: "Romanian" },
+  { code: "ru", name: "Russian" },
+  { code: "sk", name: "Slovak" },
+  { code: "sl", name: "Slovenian" },
+  { code: "es-MX", name: "Spanish (Mexico)" },
+  { code: "es-ES", name: "Spanish (Spain)" },
+  { code: "sv", name: "Swedish" },
+  { code: "ta", name: "Tamil" },
+  { code: "te", name: "Telugu" },
+  { code: "th", name: "Thai" },
+  { code: "tr", name: "Turkish" },
+  { code: "uk", name: "Ukrainian" },
+  { code: "ur", name: "Urdu" },
+  { code: "vi", name: "Vietnamese" },
+]
+
+export function appStoreLocale(code: string): AppStoreLocale {
+  return APP_STORE_LOCALES.find((locale) => locale.code === code) ?? APP_STORE_LOCALES.find((locale) => locale.code === "en-US")!
+}

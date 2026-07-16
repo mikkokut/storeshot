@@ -1,5 +1,5 @@
 version = 1
-name = "Appshot"
+name = "StoreShot"
 
 [setup]
 script = """
@@ -8,7 +8,7 @@ npm run build
 """
 
 [[actions]]
-name = "Run Appshot"
+name = "Run StoreShot"
 icon = "run"
 command = "npm run dev"
 

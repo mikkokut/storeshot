@@ -2,7 +2,11 @@ export const ASSET_CATEGORIES = ["screenshots", "brand", "logos", "other"] as co
 
 export type AssetCategory = (typeof ASSET_CATEGORIES)[number]
 
-export interface AppshotConfig {
+export const SCREENSHOT_DEVICE_TYPES = ["iphone", "ipad", "mac", "watch"] as const
+export type ScreenshotDeviceType = (typeof SCREENSHOT_DEVICE_TYPES)[number]
+export type DetectedScreenshotDeviceType = ScreenshotDeviceType | "unknown"
+
+export interface StoreShotConfig {
   version: 1
   appName: string
   platforms: Array<"ios" | "android">
@@ -15,6 +19,18 @@ export interface Asset {
   url: string
   size: number
   modifiedAt: string
+  width?: number
+  height?: number
+  /** The dimension-based classification before a user override is applied. */
+  detectedDeviceType?: DetectedScreenshotDeviceType
+  /** An explicit local catalog override. */
+  deviceTypeOverride?: ScreenshotDeviceType
+  /** The effective type used for mockup recommendations. */
+  deviceType?: DetectedScreenshotDeviceType
+}
+
+export interface UpdateAssetMetadataInput {
+  deviceType: ScreenshotDeviceType | null
 }
 
 interface CanvasElementBase {
@@ -27,10 +43,23 @@ interface CanvasElementBase {
   opacity: number
 }
 
+export type ImageElementSource =
+  | { kind: "builtin"; id: string }
+  | { kind: "asset"; assetId: string }
+
+/** A project image or built-in vector artwork placed on a screenshot. */
 export interface ImageElement extends CanvasElementBase {
   type: "image"
-  assetId: string
+  source: ImageElementSource
   fit: "contain" | "cover"
+  /** Replaces the visible pixels while preserving their alpha. Omit to use the source colors. */
+  fill?: string
+}
+
+export interface DeviceMockupElement extends CanvasElementBase {
+  type: "mockup"
+  mockupId: string
+  assetId: string
 }
 
 export type FontWeight = 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900
@@ -55,7 +84,7 @@ export interface ShapeElement extends CanvasElementBase {
   cornerRadius: number
 }
 
-export type CanvasElement = ImageElement | ShapeElement | TextElement
+export type CanvasElement = DeviceMockupElement | ImageElement | ShapeElement | TextElement
 
 export interface ScreenshotArea {
   id: string
@@ -93,9 +122,9 @@ export interface UpdateSetMetadataInput {
   device: string
 }
 
-export interface AppshotProject {
+export interface StoreShotProject {
   directory: string
-  config: AppshotConfig
+  config: StoreShotConfig
   assets: Record<AssetCategory, Asset[]>
   sets: ScreenshotSet[]
 }

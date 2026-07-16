@@ -55,7 +55,7 @@ export async function loadBunnyFont(familyName: string, weight: FontWeight): Pro
       const link = document.createElement("link")
       link.rel = "stylesheet"
       link.href = url.toString()
-      link.dataset.appshotBunnyFont = familyName
+      link.dataset.storeshotBunnyFont = familyName
       link.addEventListener("load", () => resolve(), { once: true })
       link.addEventListener("error", () => reject(new Error(`Could not load ${familyName}`)), { once: true })
       document.head.append(link)
@@ -87,7 +87,7 @@ export async function loadBunnyFontPreviews(fonts: BunnyFont[]): Promise<void> {
       const link = document.createElement("link")
       link.rel = "stylesheet"
       link.href = url.toString()
-      link.dataset.appshotBunnyFontPreview = ""
+      link.dataset.storeshotBunnyFontPreview = ""
       link.addEventListener("load", () => resolve(), { once: true })
       link.addEventListener("error", () => reject(new Error("Could not load font previews")), { once: true })
       document.head.append(link)

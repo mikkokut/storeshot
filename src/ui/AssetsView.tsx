@@ -1,15 +1,29 @@
-import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type MouseEvent } from "react"
-import { BadgeCheck, Eye, Image, ImagePlus, Palette, Shapes, Trash2, Upload, X } from "lucide-react"
+import { useRef, useState, type ChangeEvent, type DragEvent } from "react"
+import { BadgeCheck, ChevronDown, CircleHelp, Eye, Image, ImagePlus, Monitor, Palette, Shapes, Smartphone, Tablet, Trash2, Upload, Watch as WatchIcon } from "lucide-react"
 
 import { formatBytes, messageFor, request, RequestError } from "@/api"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
-import { ASSET_CATEGORIES, type AppshotProject, type Asset, type AssetCategory } from "../shared"
+import {
+  ASSET_CATEGORIES,
+  SCREENSHOT_DEVICE_TYPES,
+  type StoreShotProject,
+  type Asset,
+  type AssetCategory,
+  type DetectedScreenshotDeviceType,
+  type ScreenshotDeviceType,
+} from "../shared"
 
 interface AssetsViewProps {
-  project: AppshotProject
-  onProjectChange: (project: AppshotProject) => void
+  project: StoreShotProject
+  onProjectChange: (project: StoreShotProject) => void
 }
 
 const categoryDetails: Record<AssetCategory, { label: string; description: string; icon: typeof Image }> = {
@@ -19,7 +33,21 @@ const categoryDetails: Record<AssetCategory, { label: string; description: strin
   other: { label: "Other", description: "Reusable supporting imagery", icon: Shapes },
 }
 
-const supportedAssetPattern = /\.(png|jpe?g|webp)$/i
+const supportedAssetPattern = /\.(png|jpe?g|webp|svg)$/i
+const deviceTypeLabels: Record<ScreenshotDeviceType, string> = {
+  iphone: "iPhone",
+  ipad: "iPad",
+  mac: "Mac",
+  watch: "Watch",
+}
+const screenshotGroupOrder: DetectedScreenshotDeviceType[] = ["iphone", "ipad", "mac", "watch", "unknown"]
+const screenshotPreviewAspectRatios: Record<DetectedScreenshotDeviceType, string> = {
+  iphone: "1290 / 2796",
+  ipad: "3 / 4",
+  mac: "16 / 10",
+  watch: "422 / 514",
+  unknown: "4 / 3",
+}
 
 export function AssetsView({ project, onProjectChange }: AssetsViewProps) {
   const [category, setCategory] = useState<AssetCategory>("screenshots")
@@ -28,18 +56,18 @@ export function AssetsView({ project, onProjectChange }: AssetsViewProps) {
   const [notice, setNotice] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const [preview, setPreview] = useState<Asset | null>(null)
+  const [assetPendingDeletion, setAssetPendingDeletion] = useState<Asset | null>(null)
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set())
   const dragDepth = useRef(0)
   const fileInput = useRef<HTMLInputElement>(null)
   const assets = project.assets[category]
-
-  useEffect(() => {
-    if (!preview) return
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") setPreview(null)
-    }
-    window.addEventListener("keydown", closeOnEscape)
-    return () => window.removeEventListener("keydown", closeOnEscape)
-  }, [preview])
+  const assetGroups = category === "screenshots"
+    ? screenshotGroupOrder.map((deviceType) => ({
+        id: deviceType,
+        label: deviceType === "unknown" ? "Unknown device" : deviceTypeLabels[deviceType],
+        assets: assets.filter((asset) => (asset.deviceType ?? "unknown") === deviceType),
+      })).filter((group) => group.assets.length > 0)
+    : [{ id: category, label: null, assets }]
 
   async function uploadAssets(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? [])
@@ -55,25 +83,29 @@ export function AssetsView({ project, onProjectChange }: AssetsViewProps) {
     setError(null)
     setNotice(null)
     let added = 0
+    let replaced = 0
     let duplicates = 0
+    const existingNames = new Set(project.assets[category].map((asset) => asset.name))
     const failures: string[] = []
     try {
-      let nextProject = project
       for (const file of files) {
         try {
-          nextProject = await request<AppshotProject>(
+          await request<{ replaced: boolean }>(
             `/api/assets?category=${category}&filename=${encodeURIComponent(file.name)}`,
             { method: "POST", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file },
           )
-          added += 1
+          if (existingNames.has(file.name)) replaced += 1
+          else added += 1
+          existingNames.add(file.name)
         } catch (nextError) {
           if (nextError instanceof RequestError && nextError.code === "DUPLICATE_ASSET") duplicates += 1
           else failures.push(`${file.name}: ${messageFor(nextError)}`)
         }
       }
-      if (added > 0) onProjectChange(nextProject)
+      if (added > 0 || replaced > 0) onProjectChange(await request<StoreShotProject>("/api/project"))
       const summary = [
         added > 0 ? `Added ${added} ${added === 1 ? "asset" : "assets"}.` : "",
+        replaced > 0 ? `Replaced ${replaced} ${replaced === 1 ? "asset" : "assets"}.` : "",
         duplicates > 0 ? `Skipped ${duplicates} ${duplicates === 1 ? "duplicate" : "duplicates"}.` : "",
         unsupported > 0 ? `Ignored ${unsupported} unsupported ${unsupported === 1 ? "file" : "files"}.` : "",
       ].filter(Boolean).join(" ")
@@ -116,13 +148,13 @@ export function AssetsView({ project, onProjectChange }: AssetsViewProps) {
     }
   }
 
-  async function deleteAsset(filename: string) {
-    if (!window.confirm(`Delete ${filename} from the asset catalog?`)) return
+  async function deleteAsset(asset: Asset) {
     setBusy(true)
     try {
-      await request(`/api/assets/${category}/${encodeURIComponent(filename)}`, { method: "DELETE" })
-      const nextProject = await request<AppshotProject>("/api/project")
+      await request(`/api/assets/${asset.category}/${encodeURIComponent(asset.name)}`, { method: "DELETE" })
+      const nextProject = await request<StoreShotProject>("/api/project")
       onProjectChange(nextProject)
+      setAssetPendingDeletion(null)
     } catch (nextError) {
       setError(messageFor(nextError))
     } finally {
@@ -130,8 +162,23 @@ export function AssetsView({ project, onProjectChange }: AssetsViewProps) {
     }
   }
 
-  function closePreviewFromBackdrop(event: MouseEvent<HTMLDivElement>) {
-    if (event.target === event.currentTarget) setPreview(null)
+  async function updateDeviceType(asset: Asset, value: "auto" | ScreenshotDeviceType) {
+    setBusy(true)
+    setError(null)
+    try {
+      const nextProject = await request<StoreShotProject>(
+        `/api/assets/${asset.category}/${encodeURIComponent(asset.name)}`,
+        { method: "PATCH", body: JSON.stringify({ deviceType: value === "auto" ? null : value }) },
+      )
+      onProjectChange(nextProject)
+      setPreview((current) => current?.id === asset.id
+        ? nextProject.assets.screenshots.find((item) => item.id === asset.id) ?? null
+        : current)
+    } catch (nextError) {
+      setError(messageFor(nextError))
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -156,7 +203,7 @@ export function AssetsView({ project, onProjectChange }: AssetsViewProps) {
             className="hidden"
             type="file"
             multiple
-            accept="image/png,image/jpeg,image/webp"
+            accept="image/png,image/jpeg,image/webp,image/svg+xml"
             onChange={uploadAssets}
           />
           <Button disabled={busy} onClick={() => fileInput.current?.click()}>
@@ -165,37 +212,35 @@ export function AssetsView({ project, onProjectChange }: AssetsViewProps) {
           </Button>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
           {ASSET_CATEGORIES.map((item) => {
             const details = categoryDetails[item]
             const Icon = details.icon
             const selected = category === item
             return (
-              <button
+              <Button
                 aria-pressed={selected}
                 className={cn(
-                  "rounded-xl border bg-card p-4 text-left transition-colors outline-none hover:border-foreground/20 hover:bg-muted/30 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
+                  "h-11 w-full flex-row justify-start gap-2 rounded-lg px-2.5 text-left",
                   selected && "border-foreground/50 bg-muted/40 hover:border-foreground/50 hover:bg-muted/40",
                 )}
                 key={item}
                 type="button"
+                variant="outline"
                 onClick={() => setCategory(item)}
               >
-                <div className="mb-3 flex items-center justify-between">
-                  <span className={cn("grid size-9 place-items-center rounded-lg bg-muted text-muted-foreground", selected && "bg-foreground text-background")}>
-                    <Icon className="size-4" />
-                  </span>
-                  <span className="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">{project.assets[item].length}</span>
-                </div>
-                <p className="text-sm font-semibold">{details.label}</p>
-                <p className="mt-1 text-xs text-muted-foreground">{details.description}</p>
-              </button>
+                <span className={cn("grid size-7 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground", selected && "bg-foreground text-background")}>
+                  <Icon className="size-3.5" />
+                </span>
+                <span className="min-w-0 flex-1 truncate text-xs font-semibold">{details.label}</span>
+                <Badge className="h-5 px-1.5 text-[10px]" variant="secondary">{project.assets[item].length}</Badge>
+              </Button>
             )
           })}
         </div>
 
-        {notice && <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">{notice}</p>}
-        {error && <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
+        {notice && <Alert role="status" variant="muted"><AlertDescription>{notice}</AlertDescription></Alert>}
+        {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
 
         <Card className="relative overflow-hidden">
           {dragging && (
@@ -211,31 +256,60 @@ export function AssetsView({ project, onProjectChange }: AssetsViewProps) {
           )}
           <CardHeader>
             <CardTitle>{categoryDetails[category].label}</CardTitle>
-            <CardDescription>{categoryDetails[category].description}. Add files or drop a folder; PNG, JPEG, and WebP up to 25 MB.</CardDescription>
+            <CardDescription>{categoryDetails[category].description}. Add files or drop a folder; PNG, JPEG, WebP, and SVG up to 25 MB.</CardDescription>
           </CardHeader>
           <CardContent>
             {assets.length === 0 ? (
-              <button
-                className="grid min-h-72 w-full place-items-center rounded-xl border border-dashed bg-muted/20 text-center transition-colors hover:bg-muted/40"
+              <Button
+                className="h-auto min-h-72 w-full flex-col gap-3 rounded-xl border-dashed bg-muted/20 text-center whitespace-normal hover:bg-muted/40"
                 type="button"
+                variant="outline"
                 onClick={() => fileInput.current?.click()}
               >
-                <span className="space-y-3">
-                  <span className="mx-auto grid size-12 place-items-center rounded-full border bg-background shadow-sm">
-                    <ImagePlus className="size-5 text-muted-foreground" />
-                  </span>
-                  <span className="block text-sm font-medium">Add your first {categoryDetails[category].label.toLowerCase()}</span>
-                  <span className="block text-xs text-muted-foreground">Choose files or drop files and folders anywhere on this page.</span>
+                <span className="grid size-12 place-items-center rounded-full border bg-background shadow-sm">
+                  <ImagePlus className="size-5 text-muted-foreground" />
                 </span>
-              </button>
+                <span className="text-sm font-medium">Add your first {categoryDetails[category].label.toLowerCase()}</span>
+                <span className="text-xs text-muted-foreground">Choose files or drop files and folders anywhere on this page.</span>
+              </Button>
             ) : (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-                {assets.map((asset) => (
+              <div className="space-y-7">
+                {assetGroups.map((group) => (
+                  <section aria-labelledby={group.label ? `asset-group-${group.id}` : undefined} key={group.id}>
+                    <Collapsible
+                      open={!collapsedGroups.has(group.id)}
+                      onOpenChange={(open) => setCollapsedGroups((current) => {
+                        const next = new Set(current)
+                        if (open) next.delete(group.id)
+                        else next.add(group.id)
+                        return next
+                      })}
+                    >
+                      {group.label && (
+                        <CollapsibleTrigger
+                          className="mb-3 flex w-full items-center gap-2 rounded-md py-1 text-left outline-none hover:text-foreground/70 focus-visible:ring-2 focus-visible:ring-ring [&[data-panel-open]>svg]:rotate-180"
+                          id={`asset-group-${group.id}`}
+                        >
+                          <span className="text-sm font-semibold">{group.label}</span>
+                          <Badge className="h-5 px-2 text-[11px]" variant="secondary">{group.assets.length}</Badge>
+                          <ChevronDown className="ml-auto size-4 text-muted-foreground transition-transform" />
+                        </CollapsibleTrigger>
+                      )}
+                      <CollapsibleContent>
+                        <div className={cn(
+                          "grid gap-4",
+                          category === "screenshots"
+                            ? "grid-cols-[repeat(auto-fill,minmax(9rem,1fr))]"
+                            : "sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4",
+                        )}>
+                      {group.assets.map((asset) => (
                   <article className="group overflow-hidden rounded-xl border bg-background" key={asset.id}>
-                    <button
+                    <Button
                       aria-label={`Preview ${asset.name}`}
-                      className="relative grid aspect-[4/3] w-full place-items-center overflow-hidden bg-[linear-gradient(45deg,#f4f4f5_25%,transparent_25%),linear-gradient(-45deg,#f4f4f5_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#f4f4f5_75%),linear-gradient(-45deg,transparent_75%,#f4f4f5_75%)] bg-[length:20px_20px] bg-[position:0_0,0_10px,10px_-10px,-10px_0px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                      className="relative grid h-auto w-full place-items-center overflow-hidden rounded-none bg-[linear-gradient(45deg,#f4f4f5_25%,transparent_25%),linear-gradient(-45deg,#f4f4f5_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#f4f4f5_75%),linear-gradient(-45deg,transparent_75%,#f4f4f5_75%)] bg-[length:20px_20px] bg-[position:0_0,0_10px,10px_-10px,-10px_0px] p-0 hover:bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset active:translate-y-0"
+                      style={{ aspectRatio: category === "screenshots" ? screenshotPreviewAspectRatios[asset.deviceType ?? "unknown"] : "4 / 3" }}
                       type="button"
+                      variant="ghost"
                       onClick={() => setPreview(asset)}
                     >
                       <img className="h-full w-full object-contain" src={asset.url} alt={asset.name} />
@@ -243,59 +317,109 @@ export function AssetsView({ project, onProjectChange }: AssetsViewProps) {
                         <span className="grid size-10 place-items-center rounded-full bg-background/90 shadow-sm">
                           <Eye className="size-4" />
                         </span>
+                        <span className="absolute bottom-2 left-2 rounded-md bg-black/70 px-2 py-1 text-[10px] font-medium text-white shadow-sm backdrop-blur-sm">
+                          {asset.width && asset.height ? `${asset.width} × ${asset.height} · ` : ""}{formatBytes(asset.size)}
+                        </span>
                       </span>
-                    </button>
-                    <div className="flex items-center justify-between gap-2 p-3">
+                    </Button>
+                    <div className="flex items-center justify-between gap-1.5 px-2 py-1.5">
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-medium" title={asset.name}>{asset.name}</p>
-                        <p className="text-xs text-muted-foreground">{formatBytes(asset.size)}</p>
+                        <p className="truncate text-xs font-medium" title={asset.name}>{asset.name}</p>
                       </div>
-                      <Button
-                        aria-label={`Delete ${asset.name}`}
-                        disabled={busy}
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => deleteAsset(asset.name)}
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
+                      <div className="flex shrink-0 items-center gap-0.5">
+                        {category === "screenshots" && (
+                        <Select
+                          disabled={busy}
+                          value={asset.deviceTypeOverride ?? "auto"}
+                          onValueChange={(value) => {
+                            if (value !== null) void updateDeviceType(asset, value as "auto" | ScreenshotDeviceType)
+                          }}
+                        >
+                          <SelectTrigger
+                            aria-label={`Device type for ${asset.name}`}
+                            className="justify-center border-0 bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground [&>svg:last-child]:hidden"
+                            title={asset.deviceType && asset.deviceType !== "unknown" ? deviceTypeLabels[asset.deviceType] : "Unknown device"}
+                            size="icon-xs"
+                          >
+                            <SelectValue>
+                              <DeviceTypeIcon deviceType={asset.deviceType ?? "unknown"} />
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="auto">Auto · {asset.detectedDeviceType && asset.detectedDeviceType !== "unknown" ? deviceTypeLabels[asset.detectedDeviceType] : "Unknown"}</SelectItem>
+                            {SCREENSHOT_DEVICE_TYPES.map((deviceType) => (
+                              <SelectItem key={deviceType} value={deviceType}>{deviceTypeLabels[deviceType]}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        )}
+                        <Button
+                          aria-label={`Delete ${asset.name}`}
+                          className="text-muted-foreground hover:text-foreground"
+                          disabled={busy}
+                          size="icon-xs"
+                          variant="ghost"
+                          onClick={() => setAssetPendingDeletion(asset)}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </div>
                     </div>
                   </article>
+                      ))}
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  </section>
                 ))}
               </div>
             )}
           </CardContent>
         </Card>
       </div>
-      {preview && (
-        <div
-          aria-labelledby="asset-preview-title"
-          aria-modal="true"
-          className="fixed inset-0 z-50 flex flex-col bg-black/85 p-4 backdrop-blur-sm"
-          role="dialog"
-          onMouseDown={closePreviewFromBackdrop}
-        >
-          <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 rounded-t-xl bg-background px-4 py-3">
-            <div className="min-w-0">
-              <h2 className="truncate text-sm font-semibold" id="asset-preview-title">{preview.name}</h2>
-              <p className="text-xs text-muted-foreground">{categoryDetails[preview.category].label} · {formatBytes(preview.size)}</p>
+      <Dialog open={Boolean(preview)} onOpenChange={(open) => { if (!open) setPreview(null) }}>
+        {preview && (
+          <DialogContent className="h-[calc(100vh-2rem)] max-w-7xl grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden p-0">
+            <DialogHeader className="border-b px-4 py-3 pr-14">
+              <DialogTitle className="truncate text-sm">{preview.name}</DialogTitle>
+              <DialogDescription className="text-xs">{categoryDetails[preview.category].label} · {formatBytes(preview.size)}</DialogDescription>
+            </DialogHeader>
+            <div className="relative min-h-0 overflow-hidden bg-black/85 p-4">
+              <img className="size-full object-contain" src={preview.url} alt={preview.name} />
             </div>
-            <Button aria-label="Close preview" size="icon" variant="ghost" onClick={() => setPreview(null)}>
-              <X className="size-4" />
+          </DialogContent>
+        )}
+      </Dialog>
+
+      <AlertDialog open={Boolean(assetPendingDeletion)} onOpenChange={(open) => { if (!open && !busy) setAssetPendingDeletion(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this asset?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {assetPendingDeletion?.name} will be removed from the local asset catalog. Existing canvas layers that use it will no longer render.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel render={<Button disabled={busy} variant="outline" />}>Cancel</AlertDialogCancel>
+            <Button disabled={busy || !assetPendingDeletion} variant="destructive" onClick={() => { if (assetPendingDeletion) void deleteAsset(assetPendingDeletion) }}>
+              Delete asset
             </Button>
-          </div>
-          <div className="relative mx-auto min-h-0 w-full max-w-7xl flex-1 overflow-hidden rounded-b-xl border-t border-white/10 bg-black/40 p-4">
-            <img
-              className="absolute object-contain"
-              style={{ inset: "1rem", width: "calc(100% - 2rem)", height: "calc(100% - 2rem)" }}
-              src={preview.url}
-              alt={preview.name}
-            />
-          </div>
-        </div>
-      )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
+}
+
+function DeviceTypeIcon({ deviceType }: { deviceType: DetectedScreenshotDeviceType }) {
+  const Icon = {
+    iphone: Smartphone,
+    ipad: Tablet,
+    mac: Monitor,
+    watch: WatchIcon,
+    unknown: CircleHelp,
+  }[deviceType]
+  return <Icon className="size-3.5" />
 }
 
 async function filesFromDrop(dataTransfer: DataTransfer): Promise<File[]> {

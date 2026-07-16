@@ -1,12 +1,13 @@
 import { createReadStream } from "node:fs"
 import { readFile, stat } from "node:fs/promises"
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
+import type { AddressInfo } from "node:net"
 import path from "node:path"
 
 import type { ViteDevServer } from "vite"
 
-import { AssetNameConflictError, DuplicateAssetError, ProjectStore } from "./project-store.js"
-import type { AppshotConfig, AssetCategory, CreateSetInput, ScreenshotSet, UpdateSetMetadataInput } from "./shared.js"
+import { DuplicateAssetError, ProjectStore } from "./project-store.js"
+import type { StoreShotConfig, AssetCategory, CreateSetInput, ScreenshotSet, UpdateAssetMetadataInput, UpdateSetMetadataInput } from "./shared.js"
 
 const MAX_REQUEST_BYTES = 25 * 1024 * 1024
 
@@ -34,6 +35,7 @@ export async function startServer(options: StartServerOptions) {
 
   const server = createServer(async (request, response) => {
     try {
+      if ((request.url ?? "").startsWith("/api/")) assertAllowedBrowserRequest(request, options.host)
       if (await handleApiRequest(request, response, store)) return
       if (vite) {
         vite.middlewares(request, response)
@@ -41,8 +43,9 @@ export async function startServer(options: StartServerOptions) {
       }
       await serveBuiltFrontend(request, response, path.join(options.packageRoot, "dist/ui"))
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unexpected error"
-      if (!response.headersSent) sendJson(response, 500, { error: message })
+      const failure = httpFailureFor(error, request)
+      if (failure.status >= 500) console.error(error)
+      if (!response.headersSent) sendJson(response, failure.status, { error: failure.message, ...(failure.code ? { code: failure.code } : {}) })
       else response.end()
     }
   })
@@ -54,6 +57,7 @@ export async function startServer(options: StartServerOptions) {
 
   return {
     store,
+    port: (server.address() as AddressInfo).port,
     close: async () => {
       await vite?.close()
       await new Promise<void>((resolve, reject) => {
@@ -75,8 +79,71 @@ async function handleApiRequest(
     return true
   }
 
+  if (request.method === "GET" && url.pathname === "/api/mockup-bundles") {
+    sendJson(response, 200, await store.listMockupCatalog())
+    return true
+  }
+
+  const mockupBundleImportFileMatch = url.pathname.match(/^\/api\/mockup-bundle-imports\/([^/]+)\/([^/]+)\/files\/(.+)$/)
+  if (request.method === "PUT" && mockupBundleImportFileMatch) {
+    const importId = decodeURIComponent(mockupBundleImportFileMatch[1])
+    const bundleId = decodeURIComponent(mockupBundleImportFileMatch[2])
+    const relativePath = mockupBundleImportFileMatch[3].split("/").map(decodeURIComponent).join("/")
+    await store.writeMockupBundleImportFile(importId, bundleId, relativePath, await readBody(request))
+    response.writeHead(204).end()
+    return true
+  }
+
+  const mockupBundleImportMatch = url.pathname.match(/^\/api\/mockup-bundle-imports\/([^/]+)\/([^/]+)$/)
+  if (request.method === "PUT" && mockupBundleImportMatch) {
+    const importId = decodeURIComponent(mockupBundleImportMatch[1])
+    const bundleId = decodeURIComponent(mockupBundleImportMatch[2])
+    await store.commitMockupBundleImport(importId, bundleId, await readJsonBody(request))
+    sendJson(response, 200, await store.listMockupCatalog())
+    return true
+  }
+
+  const mockupBundleImportDiscardMatch = url.pathname.match(/^\/api\/mockup-bundle-imports\/([^/]+)$/)
+  if (request.method === "DELETE" && mockupBundleImportDiscardMatch) {
+    await store.discardMockupBundleImport(decodeURIComponent(mockupBundleImportDiscardMatch[1]))
+    response.writeHead(204).end()
+    return true
+  }
+
+  const mockupBundleMatch = url.pathname.match(/^\/api\/mockup-bundles\/([^/]+)$/)
+  if (request.method === "PUT" && mockupBundleMatch) {
+    const bundleId = decodeURIComponent(mockupBundleMatch[1])
+    await store.writeMockupBundleManifest(bundleId, await readJsonBody(request))
+    sendJson(response, 200, await store.listMockupCatalog())
+    return true
+  }
+
+  const mockupBundleFileMatch = url.pathname.match(/^\/api\/mockup-bundle-files\/([^/]+)\/(.+)$/)
+  if (mockupBundleFileMatch) {
+    const bundleId = decodeURIComponent(mockupBundleFileMatch[1])
+    const relativePath = mockupBundleFileMatch[2].split("/").map(decodeURIComponent).join("/")
+    if (request.method === "PUT") {
+      await store.writeMockupBundleFile(bundleId, relativePath, await readBody(request))
+      response.writeHead(204).end()
+      return true
+    }
+    if (request.method === "GET") {
+      const target = await store.resolveExistingMockupBundleFile(bundleId, relativePath)
+      const metadata = await stat(target)
+      response.writeHead(200, {
+        "Content-Type": contentTypeFor(target),
+        "Content-Length": metadata.size,
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+        ...(path.extname(target).toLowerCase() === ".svg" ? { "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox" } : {}),
+      })
+      createReadStream(target).pipe(response)
+      return true
+    }
+  }
+
   if (request.method === "PATCH" && url.pathname === "/api/config") {
-    const config = await store.writeConfig((await readJsonBody(request)) as AppshotConfig)
+    const config = await store.writeConfig((await readJsonBody(request)) as StoreShotConfig)
     sendJson(response, 200, config)
     return true
   }
@@ -88,20 +155,18 @@ async function handleApiRequest(
       sendJson(response, 400, { error: "A category and filename are required" })
       return true
     }
+    let replaced = false
     try {
-      await store.addAsset(category, filename, await readBody(request))
+      const result = await store.addAsset(category, filename, await readBody(request))
+      replaced = result.replaced
     } catch (error) {
       if (error instanceof DuplicateAssetError) {
         sendJson(response, 409, { error: error.message, code: "DUPLICATE_ASSET" })
         return true
       }
-      if (error instanceof AssetNameConflictError) {
-        sendJson(response, 409, { error: error.message, code: "ASSET_NAME_CONFLICT" })
-        return true
-      }
       throw error
     }
-    sendJson(response, 201, await store.readProject())
+    sendJson(response, replaced ? 200 : 201, { replaced })
     return true
   }
 
@@ -109,14 +174,15 @@ async function handleApiRequest(
   if (assetMatch) {
     const category = decodeURIComponent(assetMatch[1]) as AssetCategory
     const filename = decodeURIComponent(assetMatch[2])
-    const target = store.resolveAsset(category, filename)
-
     if (request.method === "GET") {
+      const target = await store.resolveExistingAsset(category, filename)
       const metadata = await stat(target)
       response.writeHead(200, {
         "Content-Type": contentTypeFor(target),
         "Content-Length": metadata.size,
         "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+        ...(path.extname(target).toLowerCase() === ".svg" ? { "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox" } : {}),
       })
       createReadStream(target).pipe(response)
       return true
@@ -127,10 +193,23 @@ async function handleApiRequest(
       response.writeHead(204).end()
       return true
     }
+
+    if (request.method === "PATCH") {
+      await store.updateAssetMetadata(category, filename, (await readJsonBody(request)) as UpdateAssetMetadataInput)
+      sendJson(response, 200, await store.readProject())
+      return true
+    }
   }
 
   if (request.method === "POST" && url.pathname === "/api/sets") {
     const set = await store.createSet((await readJsonBody(request)) as CreateSetInput)
+    sendJson(response, 201, set)
+    return true
+  }
+
+  const duplicateSetMatch = url.pathname.match(/^\/api\/sets\/([^/]+)\/duplicate$/)
+  if (request.method === "POST" && duplicateSetMatch) {
+    const set = await store.duplicateSet(decodeURIComponent(duplicateSetMatch[1]))
     sendJson(response, 201, set)
     return true
   }
@@ -183,11 +262,13 @@ async function serveBuiltFrontend(request: IncomingMessage, response: ServerResp
 }
 
 async function readJsonBody(request: IncomingMessage): Promise<unknown> {
+  const contentType = request.headers["content-type"]?.split(";", 1)[0]?.trim().toLowerCase()
+  if (contentType !== "application/json") throw new HttpError(415, "Request body must use application/json")
   const body = await readBody(request)
   try {
     return JSON.parse(body.toString("utf8"))
   } catch {
-    throw new Error("Request body must be valid JSON")
+    throw new HttpError(400, "Request body must be valid JSON")
   }
 }
 
@@ -197,10 +278,70 @@ async function readBody(request: IncomingMessage): Promise<Buffer> {
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
     size += buffer.length
-    if (size > MAX_REQUEST_BYTES) throw new Error("Request is larger than 25 MB")
+    if (size > MAX_REQUEST_BYTES) throw new HttpError(413, "Request is larger than 25 MB")
     chunks.push(buffer)
   }
   return Buffer.concat(chunks)
+}
+
+class HttpError extends Error {
+  constructor(readonly status: number, message: string, readonly code?: string) {
+    super(message)
+  }
+}
+
+function assertAllowedBrowserRequest(request: IncomingMessage, configuredHost: string): void {
+  const host = request.headers.host
+  if (!host) throw new HttpError(400, "A Host header is required")
+
+  let hostUrl: URL
+  try {
+    hostUrl = new URL(`http://${host}`)
+  } catch {
+    throw new HttpError(400, "The Host header is invalid")
+  }
+  const configuredHostname = normalizedHostname(configuredHost)
+  if (!isLoopbackHostname(hostUrl.hostname) && hostUrl.hostname !== configuredHostname) {
+    throw new HttpError(403, "This StoreShot server does not accept requests for that host")
+  }
+
+  const origin = request.headers.origin
+  if (!origin) return
+  let originUrl: URL
+  try {
+    originUrl = new URL(origin)
+  } catch {
+    throw new HttpError(403, "The request origin is invalid")
+  }
+  if ((originUrl.protocol !== "http:" && originUrl.protocol !== "https:") || originUrl.host !== host) {
+    throw new HttpError(403, "Cross-origin API requests are not allowed")
+  }
+}
+
+function normalizedHostname(host: string): string {
+  try {
+    return new URL(`http://${host}`).hostname
+  } catch {
+    return host.replace(/^\[|\]$/g, "")
+  }
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
+}
+
+function httpFailureFor(error: unknown, request: IncomingMessage): HttpError {
+  if (error instanceof HttpError) return error
+  if (error instanceof DuplicateAssetError) return new HttpError(409, error.message, "DUPLICATE_ASSET")
+  const code = (error as NodeJS.ErrnoException | undefined)?.code
+  if (code === "ENOENT") return new HttpError(404, "The requested project file was not found")
+  if (code === "EACCES" || code === "EPERM") return new HttpError(403, "StoreShot cannot access that project file")
+  if (isMutation(request) && error instanceof Error && !code) return new HttpError(400, error.message)
+  return new HttpError(500, "StoreShot could not complete the request")
+}
+
+function isMutation(request: IncomingMessage): boolean {
+  return request.method === "POST" || request.method === "PUT" || request.method === "PATCH" || request.method === "DELETE"
 }
 
 function sendJson(response: ServerResponse, status: number, value: unknown) {
@@ -221,6 +362,9 @@ function contentTypeFor(filename: string): string {
     case ".jpg":
     case ".jpeg": return "image/jpeg"
     case ".webp": return "image/webp"
+    case ".svg": return "image/svg+xml"
+    case ".md":
+    case ".txt": return "text/plain; charset=utf-8"
     default: return "application/octet-stream"
   }
 }

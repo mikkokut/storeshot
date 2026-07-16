@@ -11,13 +11,13 @@ const packageRoot = path.resolve(path.dirname(sourceFile), "..")
 const isSourceExecution = path.extname(sourceFile) === ".ts"
 
 const program = new Command()
-  .name("appshot")
+  .name("storeshot")
   .description("Manage app store screenshots locally")
-  .version("0.0.1")
+  .version("0.1.0")
 
 program
   .command("dev")
-  .description("Open an Appshot workspace for a local directory")
+  .description("Open a StoreShot workspace for a local directory")
   .argument("[directory]", "project directory", ".")
   .addOption(new Option("-p, --port <port>", "local server port").default("4173"))
   .addOption(new Option("--host <host>", "local server host").default("127.0.0.1"))
@@ -38,7 +38,7 @@ program
     })
     const url = `http://${options.host}:${port}`
 
-    console.log(`\n  Appshot is ready at ${url}`)
+    console.log(`\n  StoreShot is ready at ${url}`)
     console.log(`  Project: ${service.store.root}\n`)
 
     if (options.open) await open(url)
@@ -53,6 +53,6 @@ program
 
 program.parseAsync().catch((error: unknown) => {
   const message = error instanceof Error ? error.message : String(error)
-  console.error(`appshot: ${message}`)
+  console.error(`storeshot: ${message}`)
   process.exitCode = 1
 })

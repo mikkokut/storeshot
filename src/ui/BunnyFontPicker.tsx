@@ -22,7 +22,7 @@ const SEARCH_RESULT_LIMIT = 80
 const LOCAL_FONT: BunnyFont = {
   category: "local",
   familyName: LOCAL_FONT_FAMILY,
-  id: "appshot-geist",
+  id: "storeshot-geist",
   weights: [400, 600, 700, 800],
 }
 

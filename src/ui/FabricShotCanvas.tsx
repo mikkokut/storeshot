@@ -1,24 +1,52 @@
-import { useEffect, useRef } from "react"
-import { Canvas as FabricCanvas, FabricImage, Line, Point, Rect, Textbox, type FabricObject } from "fabric"
+import { useEffect, useLayoutEffect, useRef } from "react"
+import { Canvas as FabricCanvas, Line, Point, Rect, Textbox, type FabricObject } from "fabric"
 
-import { DEFAULT_TEXT_LINE_HEIGHT_RATIO, type Asset, type CanvasElement, type ScreenshotArea, type TextElement } from "../shared"
+import type { DeviceMockup } from "../device-mockups"
+import type { Asset, CanvasElement, ScreenshotArea, TextElement } from "../shared"
 import { loadBunnyFont } from "./bunny-fonts"
 import { calculateCenterSnap } from "./canvas-snapping"
-
-export const SHOT_DISPLAY_WIDTH = 348
+import { applyCanvasElement as applyElement, assetForElement, createFabricObject as createObject, fabricObjectMatchesElement as objectMatchesElement, sourceKeyForObject } from "./fabric-elements"
 
 const CONTROL_COLOR = "#1683ff"
+const SHOT_DISPLAY_LONG_EDGE = 754
 const SNAP_THRESHOLD = 6
+const SELECTION_MARGIN = 18
+const SELECTION_VIEWPORT_BUFFER = 96
+const OUTSIDE_SELECTION_OPACITY = 0.24
+
+interface SelectionBounds {
+  bottom: number
+  left: number
+  right: number
+  top: number
+}
+
+interface SelectionViewport {
+  expanded: boolean
+  height: number
+  left: number
+  top: number
+  width: number
+}
+
+interface SelectionGhost {
+  elementId: string
+  object: FabricObject
+  sourceKey: string
+}
 
 interface FabricShotCanvasProps {
   active: boolean
   area: ScreenshotArea
   assetLookup: Map<string, Asset>
+  mockupLookup: Map<string, DeviceMockup>
   canvasSize: { width: number; height: number }
+  continuousPreview: boolean
   selectedElementId: string | null
+  zoom: number
   onActivate: () => void
   onChange: (element: CanvasElement) => void
-  onContextMenu: (elementId: string | null, position: { x: number; y: number }) => void
+  onContextMenu: (elementId: string | null) => void
   onSelect: (elementId: string | null) => void
 }
 
@@ -26,7 +54,7 @@ interface CanvasCallbacks {
   active: boolean
   onActivate: () => void
   onChange: (element: CanvasElement) => void
-  onContextMenu: (elementId: string | null, position: { x: number; y: number }) => void
+  onContextMenu: (elementId: string | null) => void
   onSelect: (elementId: string | null) => void
 }
 
@@ -34,8 +62,11 @@ export function FabricShotCanvas({
   active,
   area,
   assetLookup,
+  mockupLookup,
   canvasSize,
+  continuousPreview,
   selectedElementId,
+  zoom,
   onActivate,
   onChange,
   onContextMenu,
@@ -43,33 +74,61 @@ export function FabricShotCanvas({
 }: FabricShotCanvasProps) {
   const canvasElement = useRef<HTMLCanvasElement>(null)
   const fabricCanvas = useRef<FabricCanvas | null>(null)
+  const selectionGhost = useRef<SelectionGhost | null>(null)
+  const selectionViewportState = useRef<{ key: string | null; viewport: SelectionViewport } | null>(null)
   const objectsById = useRef(new Map<string, FabricObject>())
   const idsByObject = useRef(new WeakMap<FabricObject, string>())
   const areaRef = useRef(area)
   const syncVersion = useRef(0)
   const callbacks = useRef<CanvasCallbacks>({ active, onActivate, onChange, onContextMenu, onSelect })
-  const scale = SHOT_DISPLAY_WIDTH / canvasSize.width
+  const naturalScale = SHOT_DISPLAY_LONG_EDGE / Math.max(canvasSize.width, canvasSize.height)
+  const displayWidth = Math.max(1, Math.round(canvasSize.width * naturalScale * zoom))
+  const scale = displayWidth / canvasSize.width
   const displayHeight = Math.round(canvasSize.height * scale)
+  const selectedElement = active ? area.elements.find((element) => element.id === selectedElementId) : undefined
+  const selectionViewportKey = isImageElement(selectedElement)
+    ? `${area.id}:${selectedElement.id}:${displayWidth}x${displayHeight}`
+    : null
+  const selectionBounds = isImageElement(selectedElement) ? getSelectionBounds(selectedElement, scale) : null
+  const normalViewport = getNormalViewport(displayWidth, displayHeight)
+  const previousViewport = selectionViewportState.current
+  if (!selectionViewportKey || !selectionBounds) {
+    selectionViewportState.current = { key: null, viewport: normalViewport }
+  } else if (!previousViewport || previousViewport.key !== selectionViewportKey) {
+    selectionViewportState.current = {
+      key: selectionViewportKey,
+      viewport: viewportContains(normalViewport, selectionBounds)
+        ? normalViewport
+        : expandSelectionViewport(normalViewport, selectionBounds),
+    }
+  } else if (!viewportContains(previousViewport.viewport, selectionBounds)) {
+    selectionViewportState.current = {
+      key: selectionViewportKey,
+      viewport: expandSelectionViewport(previousViewport.viewport, selectionBounds),
+    }
+  }
+  const selectionViewport = selectionViewportState.current!.viewport
 
   areaRef.current = area
   callbacks.current = { active, onActivate, onChange, onContextMenu, onSelect }
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = canvasElement.current
     if (!element) return
 
     const canvas = new FabricCanvas(element, {
-      width: SHOT_DISPLAY_WIDTH,
-      height: displayHeight,
-      backgroundColor: areaRef.current.background,
+      width: normalViewport.width,
+      height: normalViewport.height,
       centeredRotation: true,
       preserveObjectStacking: true,
       selection: true,
       selectionBorderColor: CONTROL_COLOR,
       selectionColor: "rgba(22, 131, 255, 0.08)",
       selectionLineWidth: 1,
+      stopContextMenu: false,
       uniformScaling: true,
     })
+    applySelectionViewport(canvas, element, normalViewport)
     fabricCanvas.current = canvas
     let horizontalGuide: Line | null = null
     let verticalGuide: Line | null = null
@@ -84,7 +143,7 @@ export function FabricShotCanvas({
 
     const updateGuides = (showHorizontal: boolean, showVertical: boolean) => {
       if (showHorizontal && !horizontalGuide) {
-        horizontalGuide = createGuide([0, canvas.getHeight() / 2, canvas.getWidth(), canvas.getHeight() / 2])
+        horizontalGuide = createGuide([0, displayHeight / 2, displayWidth, displayHeight / 2])
         canvas.add(horizontalGuide)
       } else if (!showHorizontal && horizontalGuide) {
         canvas.remove(horizontalGuide)
@@ -92,7 +151,7 @@ export function FabricShotCanvas({
       }
 
       if (showVertical && !verticalGuide) {
-        verticalGuide = createGuide([canvas.getWidth() / 2, 0, canvas.getWidth() / 2, canvas.getHeight()])
+        verticalGuide = createGuide([displayWidth / 2, 0, displayWidth / 2, displayHeight])
         canvas.add(verticalGuide)
       } else if (!showVertical && verticalGuide) {
         canvas.remove(verticalGuide)
@@ -115,35 +174,39 @@ export function FabricShotCanvas({
       if (elementValue) callbacks.current.onChange(readElement(target, elementValue, scale))
     }
 
+    const syncSelectionGhost = (target: FabricObject) => {
+      const ghost = selectionGhost.current?.object
+      if (!ghost) return
+      syncSelectionGhostTransform(ghost, target)
+    }
+
     canvas.on("mouse:down", ({ target }) => selectTarget(target))
-    canvas.on("selection:created", ({ selected }) => selectTarget(selected?.[0]))
-    canvas.on("selection:updated", ({ selected }) => selectTarget(selected?.[0]))
     canvas.on("selection:cleared", () => {
       clearGuides()
-      if (callbacks.current.active) callbacks.current.onSelect(null)
     })
-    canvas.on("contextmenu", ({ e, target }) => {
-      e.preventDefault()
-      const event = e as MouseEvent
+    canvas.on("contextmenu", ({ target }) => {
       const elementId = target ? idsByObject.current.get(target) ?? null : null
       if (target && elementId) {
         canvas.setActiveObject(target)
         selectTarget(target)
         canvas.requestRenderAll()
       }
-      callbacks.current.onContextMenu(elementId, { x: event.clientX, y: event.clientY })
+      callbacks.current.onContextMenu(elementId)
     })
     canvas.on("object:moving", ({ target }) => {
       const objectCenter = target.getCenterPoint()
-      const canvasCenter = canvas.getCenterPoint()
+      const canvasCenter = new Point(displayWidth / 2, displayHeight / 2)
       const snap = calculateCenterSnap(objectCenter, canvasCenter, SNAP_THRESHOLD)
 
       if (snap.horizontal || snap.vertical) {
         target.setPositionByOrigin(new Point(snap.x, snap.y), "center", "center")
         target.setCoords()
       }
+      syncSelectionGhost(target)
       updateGuides(snap.horizontal, snap.vertical)
     })
+    canvas.on("object:rotating", ({ target }) => syncSelectionGhost(target))
+    canvas.on("object:scaling", ({ target }) => syncSelectionGhost(target))
     canvas.on("object:modified", ({ target }) => {
       clearGuides()
       emitChange(target)
@@ -154,11 +217,31 @@ export function FabricShotCanvas({
 
     return () => {
       syncVersion.current += 1
+      selectionGhost.current = null
       objectsById.current.clear()
       fabricCanvas.current = null
       void canvas.dispose()
     }
-  }, [displayHeight, scale])
+  }, [displayHeight, displayWidth, scale])
+
+  useLayoutEffect(() => {
+    const canvas = fabricCanvas.current
+    const element = canvasElement.current
+    if (!canvas || !element) return
+
+    const ghostState = selectionGhost.current
+    if (ghostState && (!selectionViewport.expanded || ghostState.elementId !== selectedElementId)) {
+      canvas.remove(ghostState.object)
+      ghostState.object.dispose()
+      selectionGhost.current = null
+    }
+
+    for (const object of objectsById.current.values()) {
+      applyShotClip(object, selectionViewport.expanded, displayWidth, displayHeight)
+    }
+    applySelectionViewport(canvas, element, selectionViewport)
+    canvas.requestRenderAll()
+  }, [displayHeight, displayWidth, selectedElementId, selectionViewport.expanded, selectionViewport.height, selectionViewport.left, selectionViewport.top, selectionViewport.width])
 
   useEffect(() => {
     const currentCanvas = fabricCanvas.current
@@ -177,18 +260,18 @@ export function FabricShotCanvas({
 
       for (const element of area.elements) {
         let object = objectsById.current.get(element.id)
-        const asset = element.type === "image" ? assetLookup.get(element.assetId) : undefined
+        const asset = assetForElement(element, assetLookup)
 
-        if (object && !objectMatchesElement(object, element)) {
+        if (object && !objectMatchesElement(object, element, asset)) {
           canvas.remove(object)
           objectsById.current.delete(element.id)
           object = undefined
         }
 
         if (!object) {
-          object = await createObject(element, asset)
+          object = await createObject(element, asset, mockupLookup)
           if (version !== syncVersion.current || fabricCanvas.current !== canvas) return
-          configureControls(object)
+          configureControls(object, element)
           objectsById.current.set(element.id, object)
           idsByObject.current.set(object, element.id)
           canvas.add(object)
@@ -197,6 +280,7 @@ export function FabricShotCanvas({
         if (!(object instanceof Textbox && object.isEditing)) {
           applyElement(object, element, scale)
         }
+        applyShotClip(object, selectionViewport.expanded, displayWidth, displayHeight)
 
         if (element.type === "text" && object instanceof Textbox) {
           const textObject = object
@@ -217,12 +301,59 @@ export function FabricShotCanvas({
         const object = objectsById.current.get(element.id)
         if (object) canvas.moveObjectTo(object, index)
       })
-      canvas.backgroundColor = area.background
+      if (active && selectedElementId) {
+        const selected = objectsById.current.get(selectedElementId)
+        const selectedElement = area.elements.find((element) => element.id === selectedElementId)
+        if (selected) {
+          canvas.setActiveObject(selected)
+          if (selectionViewport.expanded && isImageElement(selectedElement)) {
+            const sourceKey = sourceKeyForObject(selected) ?? selectedElement.type
+            let ghostState = selectionGhost.current
+            if (ghostState && (ghostState.elementId !== selectedElement.id || ghostState.sourceKey !== sourceKey)) {
+              canvas.remove(ghostState.object)
+              ghostState.object.dispose()
+              selectionGhost.current = null
+              ghostState = null
+            }
+
+            if (!ghostState) {
+              const ghost = await selected.clone()
+              if (version !== syncVersion.current || fabricCanvas.current !== canvas) {
+                ghost.dispose()
+                return
+              }
+              ghost.set({
+                clipPath: createShotClip(displayWidth, displayHeight, true),
+                evented: false,
+                excludeFromExport: true,
+                objectCaching: false,
+                opacity: Math.min(selected.opacity ?? 1, OUTSIDE_SELECTION_OPACITY),
+                selectable: false,
+              })
+              ghostState = { elementId: selectedElement.id, object: ghost, sourceKey }
+              selectionGhost.current = ghostState
+              canvas.add(ghost)
+            } else {
+              syncSelectionGhostTransform(ghostState.object, selected)
+            }
+            canvas.moveObjectTo(ghostState.object, 0)
+            canvas.setActiveObject(selected)
+          }
+        }
+      }
+      if (!selectionViewport.expanded || !isImageElement(selectedElement)) {
+        const ghostState = selectionGhost.current
+        if (ghostState) {
+          canvas.remove(ghostState.object)
+          ghostState.object.dispose()
+          selectionGhost.current = null
+        }
+      }
       canvas.requestRenderAll()
     }
 
     void syncObjects()
-  }, [area, assetLookup, scale])
+  }, [active, area, assetLookup, displayHeight, displayWidth, mockupLookup, scale, selectedElementId, selectionViewport.expanded])
 
   useEffect(() => {
     const canvas = fabricCanvas.current
@@ -238,12 +369,141 @@ export function FabricShotCanvas({
 
   return (
     <div
-      className="overflow-hidden bg-white shadow-xl ring-1 ring-black/10"
-      style={{ width: SHOT_DISPLAY_WIDTH, height: displayHeight }}
+      className={continuousPreview ? "relative bg-white" : "relative bg-white shadow-xl ring-1 ring-black/10"}
+      style={{ width: displayWidth, height: displayHeight, backgroundColor: area.background }}
     >
       <canvas ref={canvasElement} aria-label={`${area.name} editable canvas`} />
     </div>
   )
+}
+
+function getSelectionBounds(selectedElement: CanvasElement, scale: number): SelectionBounds {
+  const bounds = getRotatedElementBounds(selectedElement, scale)
+  return {
+    bottom: Math.ceil(bounds.bottom + SELECTION_MARGIN),
+    left: Math.floor(bounds.left - SELECTION_MARGIN),
+    right: Math.ceil(bounds.right + SELECTION_MARGIN),
+    top: Math.floor(bounds.top - SELECTION_MARGIN),
+  }
+}
+
+function getNormalViewport(displayWidth: number, displayHeight: number): SelectionViewport {
+  return { expanded: false, height: displayHeight, left: 0, top: 0, width: displayWidth }
+}
+
+function applySelectionViewport(canvas: FabricCanvas, element: HTMLCanvasElement, viewport: SelectionViewport) {
+  canvas.setDimensions({ height: viewport.height, width: viewport.width })
+  canvas.setViewportTransform([1, 0, 0, 1, -viewport.left, -viewport.top])
+
+  const canvasContainer = element.parentElement
+  if (!canvasContainer) return
+  canvasContainer.style.left = `${viewport.left}px`
+  canvasContainer.style.position = "absolute"
+  canvasContainer.style.top = `${viewport.top}px`
+  canvasContainer.style.zIndex = viewport.expanded ? "30" : "0"
+}
+
+function viewportContains(viewport: SelectionViewport, bounds: SelectionBounds): boolean {
+  return bounds.left >= viewport.left
+    && bounds.top >= viewport.top
+    && bounds.right <= viewport.left + viewport.width
+    && bounds.bottom <= viewport.top + viewport.height
+}
+
+function expandSelectionViewport(viewport: SelectionViewport, bounds: SelectionBounds): SelectionViewport {
+  const left = Math.min(viewport.left, bounds.left - SELECTION_VIEWPORT_BUFFER)
+  const top = Math.min(viewport.top, bounds.top - SELECTION_VIEWPORT_BUFFER)
+  const right = Math.max(viewport.left + viewport.width, bounds.right + SELECTION_VIEWPORT_BUFFER)
+  const bottom = Math.max(viewport.top + viewport.height, bounds.bottom + SELECTION_VIEWPORT_BUFFER)
+  return { expanded: true, height: bottom - top, left, top, width: right - left }
+}
+
+function getRotatedElementBounds(element: CanvasElement, scale: number) {
+  const left = element.x * scale
+  const top = element.y * scale
+  const width = element.width * scale
+  const height = element.height * scale
+  const angle = element.rotation * Math.PI / 180
+  const cosine = Math.cos(angle)
+  const sine = Math.sin(angle)
+  const corners = [
+    { x: 0, y: 0 },
+    { x: width, y: 0 },
+    { x: width, y: height },
+    { x: 0, y: height },
+  ].map((point) => ({
+    x: left + point.x * cosine - point.y * sine,
+    y: top + point.x * sine + point.y * cosine,
+  }))
+
+  return {
+    bottom: Math.max(...corners.map((point) => point.y)),
+    left: Math.min(...corners.map((point) => point.x)),
+    right: Math.max(...corners.map((point) => point.x)),
+    top: Math.min(...corners.map((point) => point.y)),
+  }
+}
+
+function isImageElement(element: CanvasElement | undefined): element is Extract<CanvasElement, { type: "image" | "mockup" }> {
+  return element?.type === "image" || element?.type === "mockup"
+}
+
+function applyShotClip(object: FabricObject, clipped: boolean, displayWidth: number, displayHeight: number) {
+  const currentClip = object.clipPath as StoreShotClipPath | undefined
+  if (!clipped) {
+    if (currentClip) {
+      object.set({ clipPath: undefined })
+      object.dirty = true
+    }
+    return
+  }
+  if (
+    currentClip?.storeshotClipWidth === displayWidth
+    && currentClip.storeshotClipHeight === displayHeight
+    && currentClip.storeshotClipInverted === false
+  ) return
+  object.set({ clipPath: createShotClip(displayWidth, displayHeight) })
+  object.dirty = true
+}
+
+type StoreShotClipPath = Rect & { storeshotClipHeight?: number; storeshotClipInverted?: boolean; storeshotClipWidth?: number }
+
+function createShotClip(displayWidth: number, displayHeight: number, inverted = false): Rect {
+  const clip = new Rect({
+    absolutePositioned: true,
+    evented: false,
+    fill: "#000000",
+    height: displayHeight,
+    inverted,
+    left: 0,
+    originX: "left",
+    originY: "top",
+    selectable: false,
+    top: 0,
+    width: displayWidth,
+  })
+  const storeshotClip = clip as StoreShotClipPath
+  storeshotClip.storeshotClipHeight = displayHeight
+  storeshotClip.storeshotClipInverted = inverted
+  storeshotClip.storeshotClipWidth = displayWidth
+  return clip
+}
+
+function syncSelectionGhostTransform(ghost: FabricObject, target: FabricObject) {
+  ghost.set({
+    angle: target.angle,
+    flipX: target.flipX,
+    flipY: target.flipY,
+    left: target.left,
+    opacity: Math.min(target.opacity ?? 1, OUTSIDE_SELECTION_OPACITY),
+    scaleX: target.scaleX,
+    scaleY: target.scaleY,
+    skewX: target.skewX,
+    skewY: target.skewY,
+    top: target.top,
+  })
+  ghost.setCoords()
+  ghost.dirty = true
 }
 
 function createGuide(points: [number, number, number, number]): Line {
@@ -258,50 +518,7 @@ function createGuide(points: [number, number, number, number]): Line {
   })
 }
 
-async function createObject(element: CanvasElement, asset?: Asset): Promise<FabricObject> {
-  if (element.type === "text") {
-    return new Textbox(element.text, {
-      editable: true,
-      lockScalingFlip: true,
-      minWidth: 24,
-      splitByGrapheme: false,
-    })
-  }
-
-  if (element.type === "shape") {
-    return new Rect({ lockScalingFlip: true })
-  }
-
-  if (!asset) {
-    return missingImagePlaceholder()
-  }
-
-  try {
-    return await FabricImage.fromURL(asset.url, { crossOrigin: "anonymous" }, {
-      imageSmoothing: true,
-      lockScalingFlip: true,
-    })
-  } catch {
-    return missingImagePlaceholder()
-  }
-}
-
-function objectMatchesElement(object: FabricObject, element: CanvasElement): boolean {
-  if (element.type === "text") return object instanceof Textbox
-  if (element.type === "shape") return object instanceof Rect && !(object instanceof FabricImage)
-  return object instanceof FabricImage || object instanceof Rect
-}
-
-function missingImagePlaceholder(): Rect {
-  return new Rect({
-    fill: "rgba(0, 0, 0, 0.08)",
-    stroke: "rgba(255, 255, 255, 0.8)",
-    strokeDashArray: [8, 6],
-    lockScalingFlip: true,
-  })
-}
-
-function configureControls(object: FabricObject) {
+function configureControls(object: FabricObject, element: CanvasElement) {
   object.set({
     borderColor: CONTROL_COLOR,
     borderScaleFactor: 1.25,
@@ -313,53 +530,9 @@ function configureControls(object: FabricObject) {
     padding: 0,
     transparentCorners: false,
   })
-}
-
-function applyElement(object: FabricObject, element: CanvasElement, scale: number) {
-  object.set({
-    angle: element.rotation,
-    left: element.x * scale,
-    opacity: element.opacity,
-    originX: "left",
-    originY: "top",
-    top: element.y * scale,
-  })
-
-  if (element.type === "text" && object instanceof Textbox) {
-    object.set({
-      fill: element.color,
-      fontFamily: element.fontFamily,
-      fontSize: element.fontSize * scale,
-      fontWeight: element.fontWeight,
-      lineHeight: element.lineHeight === undefined
-        ? DEFAULT_TEXT_LINE_HEIGHT_RATIO
-        : element.lineHeight / element.fontSize,
-      scaleX: 1,
-      scaleY: 1,
-      strokeWidth: 0,
-      text: element.text,
-      textAlign: element.textAlign,
-      width: Math.max(24, element.width * scale),
-    })
-    object.initDimensions()
-  } else if (element.type === "shape" && object instanceof Rect) {
-    object.set({
-      fill: element.fill,
-      height: element.height * scale,
-      rx: element.cornerRadius * scale,
-      ry: element.cornerRadius * scale,
-      scaleX: 1,
-      scaleY: 1,
-      strokeWidth: 0,
-      width: element.width * scale,
-    })
-  } else {
-    object.set({
-      scaleX: (element.width * scale) / Math.max(1, object.width),
-      scaleY: (element.height * scale) / Math.max(1, object.height),
-    })
+  if (element.type === "mockup") {
+    object.setControlsVisibility({ ml: false, mr: false, mt: false, mb: false })
   }
-  object.setCoords()
 }
 
 function readElement(object: FabricObject, element: CanvasElement, scale: number): CanvasElement {

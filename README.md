@@ -1,94 +1,139 @@
-# Appshot
+# StoreShot
 
-Appshot is a local-first TypeScript CLI for creating and managing app store
-screenshots. It combines a reusable asset catalog with language/device-specific
-screenshot sets and an editable multi-area canvas.
+StoreShot is a local-first, agent-native CLI and visual editor for creating
+App Store screenshots. Run it in a folder, edit screenshot sets in the browser,
+and keep the complete project as ordinary assets and JSON files that humans,
+scripts, and AI coding agents can all inspect and change.
 
-## Start developing
+> **Pre-release:** StoreShot is currently at `0.1.0`. It is under active
+> development, changes quickly, and does not yet promise backward compatibility.
+> It supports Apple App Store screenshots today; Google Play support is planned.
+
+StoreShot is already used in production for the iOS app
+[Lokimaps](https://www.lokimaps.com/).
+
+## Why StoreShot?
+
+Many existing screenshot tools were designed as closed, manual design silos.
+Their project data is difficult to inspect, version, automate, or hand to an AI
+agent, which makes routine localization and release work unnecessarily awkward.
+
+StoreShot keeps the workflow open and file-based. The visual editor is useful
+for hands-on design, while the same project can be reviewed, generated, or
+updated by an agent through normal filesystem tools. There is no account,
+database, hosted project, or remote backend.
+
+## What it can do
+
+- Organize raw screenshots, brand artwork, logos, and reusable image assets.
+- Create ordered screenshot sets for a locale and Apple device family.
+- Arrange text, shapes, images, recolorable artwork, and device mockups on a
+  free-form canvas.
+- Use undo/redo, copy/paste, alignment guides, layers, keyboard movement, and
+  canvas zoom.
+- Export an entire set as full-resolution PNG files in a ZIP archive.
+- Import portable device-mockup bundles with explicit frame geometry and license
+  metadata.
+- Persist everything inside the selected project directory.
+
+## Quick start
+
+StoreShot requires Node.js 22.12 or newer.
 
 ```bash
-npm install
-npm run dev
+npm install --global storeshot
+mkdir app-store-screenshots
+storeshot dev app-store-screenshots
 ```
 
-The development command runs the CLI against the ignored `playground/` folder
-at `http://localhost:4173`. The CLI process restarts when server-side TypeScript
-changes, while Vite hot-reloads frontend changes. Appshot-managed files never
-pollute the CLI repository root.
-
-To exercise the command against a separate project folder:
+The command opens a local workspace at `http://127.0.0.1:4173`. To use a
+different port or avoid opening the browser:
 
 ```bash
-npm run appshot -- dev /path/to/my-screenshot-project --no-open
+storeshot dev ./app-store-screenshots --port 4174 --no-open
 ```
 
-Or build and link the real executable:
+The default server is bound to the loopback interface. Be deliberate when using
+`--host` to expose it to another interface.
 
-```bash
-npm run build
-npm link
-appshot dev /path/to/my-screenshot-project
-```
+## Project format
 
-## Local project format
-
-Running `appshot dev` creates these files in the selected directory:
+StoreShot creates a transparent, portable project structure:
 
 ```text
-my-screenshot-project/
-├── appshot.json
+app-store-screenshots/
+├── storeshot.json
 ├── assets/
 │   ├── screenshots/
-│   │   ├── home.png
-│   │   └── settings.png
 │   ├── brand/
 │   ├── logos/
 │   └── other/
+├── mockup-bundles/
+│   └── my-device-frames/
+│       ├── storeshot-mockups.json
+│       ├── LICENSE
+│       └── assets/
 └── sets/
     ├── english-iphone-a1b2c3d4.json
     └── finnish-iphone-e5f6g7h8.json
 ```
 
-Each set describes one language/device combination, its output dimensions, its
-ordered screenshot areas, and the text/image layers placed on those areas. The
-browser UI reads and writes only these local files. There is no account,
-database, cloud service, or remote backend.
+Each set stores its locale, device, output dimensions, ordered screenshots, and
+canvas layers. StoreShot only serves files inside the selected project boundary.
+Project assets and imported bundles remain subject to their own licenses.
 
-## Current editor features
+The editor can load fonts from [Bunny Fonts](https://fonts.bunny.net/) on demand.
+The project itself remains local, but selecting a hosted font requires a network
+request to Bunny Fonts.
 
-- Asset catalog categories for raw screenshots, brand artwork, logos, and other
-  reusable images
-- Separate screenshot sets per locale and device
-- Multiple ordered App Store screenshot areas in each set
-- Editable area names and background colors
-- Movable text and image layers with pixel-based geometry
-- Text content, size, weight, color, alignment, and image-fit controls
-- Automatic persistence to readable JSON files
+## Device mockups
 
-## Commands
+The built-in Apple frames come from the MIT-licensed
+[FrameUp Free](https://github.com/amirmun99/FrameUp-Free) project. StoreShot also
+supports project-local bundles and lets users import all or selected frames.
 
-```text
-appshot dev [directory] [--port 4173] [--host 127.0.0.1] [--no-open]
+See the [mockup bundle format](docs/mockup-bundles.md) for the manifest and
+geometry specification.
+
+## Develop from source
+
+From a checkout of this repository or your fork:
+
+```bash
+npm ci
+npm run dev
 ```
 
-Useful project scripts:
+`npm run dev` starts the CLI in watch mode against the ignored `playground/`
+project and serves the React UI with Vite hot reload.
 
-- `npm run dev` — watch the CLI and serve the frontend with Vite HMR
-- `npm run appshot -- ...` — run the unbuilt CLI directly
-- `npm run typecheck` — check all TypeScript
-- `npm run build` — build the executable and static frontend
-- `npm run check` — typecheck and build
+Useful commands:
 
-## Codex development environment
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Run the development CLI and UI against `playground/` |
+| `npm run storeshot -- dev <dir> --no-open` | Run the unbuilt CLI against another folder |
+| `npm run typecheck` | Type-check the project |
+| `npm run build` | Build the CLI and browser UI |
+| `npm run licenses` | Regenerate bundled dependency license texts |
+| `npm run check` | Run license, type, and production-build validation |
 
-The repository includes shared Codex setup:
+The repository also includes `AGENTS.md` and project-local Codex configuration
+for agent-assisted development.
 
-- `AGENTS.md` documents the architecture, commands, and verification rules.
-- `.codex/config.toml` applies conservative repository-scoped permissions when
-  the project is trusted.
-- `.codex/environments/environment.toml` installs dependencies and builds new
-  worktrees, and adds **Run Appshot**, **Check**, and **Build** actions to the
-  Codex desktop app.
+## Contributing and security
 
-Trust the project when Codex prompts you so that its project-local configuration
-and actions can load.
+StoreShot is early software, and focused issues and pull requests are welcome.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before making a substantial change. Please
+report vulnerabilities according to [SECURITY.md](SECURITY.md), not in a public
+issue.
+
+## License
+
+StoreShot is released under the [MIT License](LICENSE).
+
+Third-party packages, fonts, icons, and device frames retain their own licenses.
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and
+[THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt) for attribution and license
+details. StoreShot is not affiliated with or endorsed by Apple Inc. Apple,
+App Store, iPhone, iPad, Apple Watch, and Mac are trademarks of Apple Inc.

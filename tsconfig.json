@@ -11,6 +11,8 @@
     "esModuleInterop": true,
     "jsx": "react-jsx",
     "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "noEmit": true,
     "skipLibCheck": true,
     "paths": {
@@ -18,5 +20,5 @@
     },
     "types": ["node", "vite/client"]
   },
-  "include": ["src", "tsup.config.ts", "vite.config.ts"]
+  "include": ["src", "test", "tsup.config.ts", "vite.config.ts"]
 }
