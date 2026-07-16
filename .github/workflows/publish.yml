@@ -1,61 +1,80 @@
-name: Publish to npm
+name: Release and publish
 
 on:
   push:
-    tags:
-      - "v*"
+    branches:
+      - main
+  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
+  issues: write
+  pull-requests: write
 
 concurrency:
-  group: npm-publish-${{ github.ref }}
+  group: release-main
   cancel-in-progress: false
 
 jobs:
-  publish:
-    name: Publish package
+  release:
+    name: Prepare release
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
     steps:
+      - name: Create or update release
+        id: release
+        uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
       - name: Check out release
-        uses: actions/checkout@v6
+        if: steps.release.outputs.release_created == 'true'
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        if: steps.release.outputs.release_created == 'true'
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "24"
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
 
-      - name: Verify tag matches package version
+      - name: Verify release version
+        if: steps.release.outputs.release_created == 'true'
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag_name }}
         run: |
           package_version=$(node --print "require('./package.json').version")
-          tag_version=${GITHUB_REF_NAME#v}
 
-          if [[ ! "$tag_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Release tags must use the stable vX.Y.Z format; got $GITHUB_REF_NAME." >&2
+          if [[ "$RELEASE_TAG" != "v$RELEASE_VERSION" ]]; then
+            echo "Release tag $RELEASE_TAG does not match version $RELEASE_VERSION." >&2
             exit 1
           fi
 
-          if [[ "$tag_version" != "$package_version" ]]; then
-            echo "Tag $GITHUB_REF_NAME does not match package.json version $package_version." >&2
+          if [[ "$package_version" != "$RELEASE_VERSION" ]]; then
+            echo "package.json version $package_version does not match release $RELEASE_VERSION." >&2
             exit 1
           fi
 
       - name: Install exact dependencies
+        if: steps.release.outputs.release_created == 'true'
         run: npm ci
 
       - name: Validate release
+        if: steps.release.outputs.release_created == 'true'
         run: npm run check
 
       - name: Preview package contents
+        if: steps.release.outputs.release_created == 'true'
         run: npm pack --dry-run --ignore-scripts
 
       - name: Check whether version is already published
+        if: steps.release.outputs.release_created == 'true'
         id: registry
         shell: bash
         run: |
@@ -70,5 +89,7 @@ jobs:
           fi
 
       - name: Publish package
-        if: steps.registry.outputs.already-published != 'true'
+        if: >-
+          steps.release.outputs.release_created == 'true' &&
+          steps.registry.outputs.already-published != 'true'
         run: npm publish --ignore-scripts

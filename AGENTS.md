@@ -55,6 +55,46 @@ Use Node.js 22.12 or newer and npm. Keep `package-lock.json` synchronized with
   under `src/ui/public/mockup-bundles/`. Keep `playground/.gitkeep` so fresh
   checkouts have the expected development target.
 
+## Commit and release guidance
+
+Release Please generates versions and changelog entries from commits on `main`.
+Before creating or proposing a commit, follow the official
+[Release Please commit guidance](https://github.com/googleapis/release-please#how-should-i-write-my-commits)
+and these repository rules:
+
+- Use Conventional Commit subjects in the form `type(optional-scope): summary`.
+  Keep the summary concise, imperative, and meaningful to users.
+- Use `fix:` for a user-visible bug fix; it requests a SemVer patch release.
+- Use `feat:` for a user-visible feature; it requests a SemVer minor release.
+- Use `deps:` for a dependency update that should be included in a release.
+- Use `type!:` or a `BREAKING CHANGE:` footer for a breaking change. Examples
+  include `feat!:` and `refactor!:`. While StoreShot is below `1.0.0`, the
+  Release Please configuration converts breaking releases into minor bumps.
+- Use non-releasing types such as `docs:`, `test:`, `ci:`, `build:`, `chore:`,
+  and `refactor:` when the change should not itself trigger a release. Adding
+  `!` still marks any type as breaking and therefore releasable.
+- Prefer one focused commit per user-facing change. For pull requests, prefer a
+  squash merge and make the squash title the intended Conventional Commit so
+  intermediate development commits do not pollute the changelog.
+- If one squash commit must describe multiple releasable changes, add additional
+  Conventional Commit messages as footers at the bottom of the commit message,
+  as documented by Release Please.
+- Add a `Release-As: X.Y.Z` footer only when the user explicitly requests that
+  exact next version. Do not infer or force an exact release version.
+- Release Please owns `package.json` and `package-lock.json` version bumps,
+  released `CHANGELOG.md` sections, release tags, and GitHub Releases. Do not run
+  `npm version`, manually create release tags, or hand-edit a released changelog
+  section unless the user explicitly asks for a release-recovery operation.
+
+Examples:
+
+```text
+fix(server): reject paths outside the project
+feat(editor): add Android screenshot sets
+docs: explain custom mockup bundles
+feat!: replace the project document schema
+```
+
 ## Verification
 
 Run `npm run check` after code or configuration changes. For behavior that

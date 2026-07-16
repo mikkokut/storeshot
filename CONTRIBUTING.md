@@ -71,5 +71,11 @@ For UI changes, also exercise the affected workflow in the browser. Keep commits
 focused, explain user-visible behavior in the pull request, and call out project
 format changes explicitly.
 
+Use a [Conventional Commit](https://www.conventionalcommits.org/) title for the
+commit that reaches `main`, normally the squash-merge title. Use `fix:` for bug
+fixes, `feat:` for features, and `feat!:` or a `BREAKING CHANGE:` footer for a
+breaking change. Release Please uses that title to propose the next version and
+generate the changelog; see the [release guide](docs/releasing.md) for details.
+
 By submitting a contribution, you agree that it may be distributed under the
 project's MIT License.
