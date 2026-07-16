@@ -1,5 +1,5 @@
 import { useRef, useState, type ChangeEvent, type DragEvent } from "react"
-import { BadgeCheck, ChevronDown, CircleHelp, Eye, Image, ImagePlus, Monitor, Palette, Shapes, Smartphone, Tablet, Trash2, Upload, Watch as WatchIcon } from "lucide-react"
+import { ChevronDown, CircleHelp, Eye, Image, ImagePlus, Monitor, Palette, Shapes, Smartphone, Tablet, Trash2, Upload, Watch as WatchIcon } from "lucide-react"
 
 import { formatBytes, messageFor, request, RequestError } from "@/api"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -28,8 +28,7 @@ interface AssetsViewProps {
 
 const categoryDetails: Record<AssetCategory, { label: string; description: string; icon: typeof Image }> = {
   screenshots: { label: "Raw screenshots", description: "Unframed captures from your app", icon: Image },
-  brand: { label: "Brand assets", description: "Photography, illustrations, and artwork", icon: Palette },
-  logos: { label: "Logos", description: "App marks and partner logos", icon: BadgeCheck },
+  brand: { label: "Brand assets", description: "Photography, logos, illustrations, and artwork", icon: Palette },
   other: { label: "Other", description: "Reusable supporting imagery", icon: Shapes },
 }
 
@@ -212,7 +211,7 @@ export function AssetsView({ project, onProjectChange }: AssetsViewProps) {
           </Button>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           {ASSET_CATEGORIES.map((item) => {
             const details = categoryDetails[item]
             const Icon = details.icon

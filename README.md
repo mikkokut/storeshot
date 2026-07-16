@@ -27,7 +27,7 @@ database, hosted project, or remote backend.
 
 ## What it can do
 
-- Organize raw screenshots, brand artwork, logos, and reusable image assets.
+- Organize raw screenshots, brand assets, and other reusable imagery.
 - Create ordered screenshot sets for a locale and Apple device family.
 - Arrange text, shapes, images, recolorable artwork, and device mockups on a
   free-form canvas.
@@ -91,7 +91,6 @@ app-store-screenshots/
 ├── assets/
 │   ├── screenshots/
 │   ├── brand/
-│   ├── logos/
 │   └── other/
 ├── mockup-bundles/
 │   └── my-device-frames/

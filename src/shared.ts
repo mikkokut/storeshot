@@ -1,4 +1,4 @@
-export const ASSET_CATEGORIES = ["screenshots", "brand", "logos", "other"] as const
+export const ASSET_CATEGORIES = ["screenshots", "brand", "other"] as const
 
 export type AssetCategory = (typeof ASSET_CATEGORIES)[number]
 

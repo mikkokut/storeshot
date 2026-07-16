@@ -36,6 +36,8 @@ test("ProjectStore initializes a local project and detects screenshot dimensions
     assert.equal(project.assets.screenshots[0]?.width, 1290)
     assert.equal(project.assets.screenshots[0]?.height, 2796)
     assert.equal(project.assets.screenshots[0]?.deviceType, "iphone")
+    assert.deepEqual(Object.keys(project.assets), ["screenshots", "brand", "other"])
+    await assert.rejects(store.addAsset("logos", "legacy.png", png(100, 100)), /Unsupported asset category/)
   })
 })
 
