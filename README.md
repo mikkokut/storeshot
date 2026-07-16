@@ -140,6 +140,7 @@ Useful commands:
 | Command | Purpose |
 | --- | --- |
 | `npm run dev` | Run the development CLI and UI against `playground/` |
+| `npm run dev:website` | Preview the static website with Vite hot reload |
 | `npm run storeshot -- dev <dir> --no-open` | Run the unbuilt CLI against another folder |
 | `npm run typecheck` | Type-check the project |
 | `npm run build` | Build the CLI and browser UI |

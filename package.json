@@ -39,6 +39,7 @@
   "scripts": {
     "storeshot": "tsx src/cli.ts",
     "dev": "tsx watch --clear-screen=false src/cli.ts dev playground --no-open",
+    "dev:website": "vite website",
     "build": "npm run build:cli && npm run build:ui",
     "build:cli": "tsup",
     "build:ui": "vite build",
