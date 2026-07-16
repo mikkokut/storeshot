@@ -1,0 +1,74 @@
+name: Publish to npm
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: npm-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish package
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out release
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Verify tag matches package version
+        shell: bash
+        run: |
+          package_version=$(node --print "require('./package.json').version")
+          tag_version=${GITHUB_REF_NAME#v}
+
+          if [[ ! "$tag_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tags must use the stable vX.Y.Z format; got $GITHUB_REF_NAME." >&2
+            exit 1
+          fi
+
+          if [[ "$tag_version" != "$package_version" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json version $package_version." >&2
+            exit 1
+          fi
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Validate release
+        run: npm run check
+
+      - name: Preview package contents
+        run: npm pack --dry-run --ignore-scripts
+
+      - name: Check whether version is already published
+        id: registry
+        shell: bash
+        run: |
+          package_name=$(node --print "require('./package.json').name")
+          package_version=$(node --print "require('./package.json').version")
+
+          if npm view "$package_name@$package_version" version --json >/dev/null 2>&1; then
+            echo "already-published=true" >> "$GITHUB_OUTPUT"
+            echo "$package_name@$package_version is already published; nothing to do."
+          else
+            echo "already-published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish package
+        if: steps.registry.outputs.already-published != 'true'
+        run: npm publish --ignore-scripts

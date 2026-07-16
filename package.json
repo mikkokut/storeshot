@@ -12,6 +12,14 @@
   ],
   "license": "MIT",
   "author": "Mikko Kutilainen",
+  "homepage": "https://github.com/mikkokut/storeshot#readme",
+  "bugs": {
+    "url": "https://github.com/mikkokut/storeshot/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mikkokut/storeshot.git"
+  },
   "type": "module",
   "bin": {
     "storeshot": "./dist/cli.js"

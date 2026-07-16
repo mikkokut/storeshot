@@ -121,6 +121,9 @@ Useful commands:
 The repository also includes `AGENTS.md` and project-local Codex configuration
 for agent-assisted development.
 
+Maintainers can follow the [release guide](docs/releasing.md) to publish a new
+version through npm trusted publishing and GitHub Actions.
+
 ## Contributing and security
 
 StoreShot is early software, and focused issues and pull requests are welcome.
