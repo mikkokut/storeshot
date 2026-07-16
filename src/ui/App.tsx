@@ -137,7 +137,10 @@ export function App() {
               <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
                 <MonitorSmartphone className="size-5" />
               </span>
-              <span className="truncate font-semibold leading-tight">{project.config.appName.trim() || "StoreShot"}</span>
+              <span className="min-w-0">
+                <span className="block text-[11px] font-medium leading-tight text-muted-foreground">StoreShot</span>
+                <span className="block truncate font-semibold leading-tight">{project.config.appName.trim() || "Untitled project"}</span>
+              </span>
             </Button>
           </div>
 
