@@ -230,6 +230,7 @@ export function App() {
               <SetEditor
                 assets={project.assets}
                 set={selectedSet}
+                onProjectChange={setProject}
                 onOpenAssets={() => navigate("/assets")}
                 onSetChange={updateSet}
               />

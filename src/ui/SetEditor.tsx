@@ -72,6 +72,7 @@ import type {
   ScreenshotArea,
   ScreenshotSet,
   ShapeElement,
+  StoreShotProject,
   TextElement,
 } from "../shared"
 import { DEFAULT_TEXT_LINE_HEIGHT_RATIO } from "../shared"
@@ -89,6 +90,7 @@ interface SetEditorProps {
   assets: Record<AssetCategory, Asset[]>
   set: ScreenshotSet
   onOpenAssets: () => void
+  onProjectChange: (project: StoreShotProject) => void
   onSetChange: (set: ScreenshotSet) => void
 }
 
@@ -129,7 +131,7 @@ const ASSET_PICKER_FILTERS: Array<{ label: string; value: "all" | AssetCategory 
 ]
 let editorClipboard: EditorClipboard | null = null
 
-export function SetEditor({ assets, set, onOpenAssets, onSetChange }: SetEditorProps) {
+export function SetEditor({ assets, set, onOpenAssets, onProjectChange, onSetChange }: SetEditorProps) {
   const { catalog: mockupCatalog } = useMockupCatalog()
   const [workingSet, setWorkingSet] = useState(set)
   const [selectedAreaId, setSelectedAreaId] = useState(set.areas[0].id)
@@ -318,11 +320,31 @@ export function SetEditor({ assets, set, onOpenAssets, onSetChange }: SetEditorP
       event.preventDefault()
     }
 
-    function handlePaste(event: ClipboardEvent) {
-      if (isEditableTarget(event.target) || !editorClipboard) return
-      if (event.clipboardData?.getData(APP_CLIPBOARD_MIME) !== editorClipboard.token) return
-      event.preventDefault()
-      pasteSelection()
+    async function handlePaste(event: ClipboardEvent) {
+      if (isEditableTarget(event.target)) return
+      const clipboardData = event.clipboardData
+      if (!clipboardData) return
+
+      if (editorClipboard && clipboardData.getData(APP_CLIPBOARD_MIME) === editorClipboard.token) {
+        event.preventDefault()
+        pasteSelection()
+        return
+      }
+
+      const image = Array.from(clipboardData.items)
+        .find((item) => item.kind === "file" && item.type.startsWith("image/"))
+        ?.getAsFile()
+      if (image) {
+        event.preventDefault()
+        await pasteImage(image)
+        return
+      }
+
+      const text = clipboardData.getData("text/plain")
+      if (text.trim()) {
+        event.preventDefault()
+        addText(selectedAreaIdRef.current, text)
+      }
     }
 
     window.addEventListener("copy", handleCopy)
@@ -639,11 +661,11 @@ export function SetEditor({ assets, set, onOpenAssets, onSetChange }: SetEditorP
     void persist(next)
   }
 
-  function addText(areaId = selectedArea.id) {
+  function addText(areaId = selectedArea.id, text = "Double-click to edit") {
     const element: TextElement = {
       id: `element-${crypto.randomUUID()}`,
       type: "text",
-      text: "Double-click to edit",
+      text,
       x: Math.round(workingSet.canvas.width * 0.1),
       y: Math.round(workingSet.canvas.height * 0.08),
       width: Math.round(workingSet.canvas.width * 0.8),
@@ -657,6 +679,26 @@ export function SetEditor({ assets, set, onOpenAssets, onSetChange }: SetEditorP
       textAlign: "center",
     }
     addElement(areaId, element)
+  }
+
+  async function pasteImage(file: File) {
+    const areaId = selectedAreaIdRef.current
+    const extension = extensionForImage(file.type)
+    const filename = `pasted-image-${crypto.randomUUID()}${extension}`
+    setError(null)
+    try {
+      await request(
+        `/api/assets?category=other&filename=${encodeURIComponent(filename)}`,
+        { method: "POST", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file },
+      )
+      const project = await request<StoreShotProject>("/api/project")
+      onProjectChange(project)
+      const asset = project.assets.other.find((candidate) => candidate.name === filename)
+      if (!asset) throw new Error("The pasted image was not found in the asset catalog")
+      await placeAsset(asset, areaId)
+    } catch (nextError) {
+      setError(messageFor(nextError))
+    }
   }
 
   function addShape(areaId = selectedArea.id) {
@@ -708,8 +750,7 @@ export function SetEditor({ assets, set, onOpenAssets, onSetChange }: SetEditorP
     addElement(selectedArea.id, element)
   }
 
-  async function placeAsset(asset: Asset) {
-    const areaId = selectedArea.id
+  async function placeAsset(asset: Asset, areaId = selectedArea.id) {
     const maxWidth = workingSet.canvas.width * 0.82
     const maxHeight = workingSet.canvas.height * 0.72
     const dimensions = await imageDimensions(asset.url)
@@ -2076,6 +2117,13 @@ async function imageDimensions(url: string): Promise<{ width: number; height: nu
   } catch {
     return { width: 1, height: 1 }
   }
+}
+
+function extensionForImage(mimeType: string): string {
+  if (mimeType === "image/jpeg") return ".jpg"
+  if (mimeType === "image/svg+xml") return ".svg"
+  if (mimeType === "image/webp") return ".webp"
+  return ".png"
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
