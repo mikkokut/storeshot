@@ -5,9 +5,9 @@ App Store screenshots. Run it in a folder, edit screenshot sets in the browser,
 and keep the complete project as ordinary assets and JSON files that humans,
 scripts, and AI coding agents can all inspect and change.
 
-> **Pre-release:** StoreShot is currently at `0.1.0`. It is under active
-> development, changes quickly, and does not yet promise backward compatibility.
-> It supports Apple App Store screenshots today; Google Play support is planned.
+> **Pre-release:** StoreShot is under active development, changes quickly, and
+> does not yet promise backward compatibility. It supports Apple App Store
+> screenshots today; Google Play support is planned.
 
 StoreShot is already used in production for the iOS app
 [Lokimaps](https://www.lokimaps.com/).
