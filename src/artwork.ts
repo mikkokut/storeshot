@@ -29,7 +29,7 @@ export const BUILT_IN_ARTWORK: BuiltInArtworkDefinition[] = [
   { id: "cc0-laurel-wreath-classic", name: "Classic laurel wreath", category: "laurels", url: "/artwork/cc0-laurels/laurel-wreath-classic.svg", width: 564.23, height: 574.03, attribution: WIKIMEDIA_COMMONS_ATTRIBUTION, license: "CC0-1.0" },
   { id: "cc0-laurel-wreath-natural", name: "Natural laurel wreath", category: "laurels", url: "/artwork/cc0-laurels/laurel-wreath-natural.svg", width: 595.3, height: 519.9, attribution: WIKIMEDIA_COMMONS_ATTRIBUTION, license: "CC0-1.0" },
   { id: "cc0-laurel-branch", name: "Laurel branch", category: "laurels", url: "/artwork/cc0-laurels/laurel-branch.svg", width: 244.14168, height: 307.26953, attribution: WIKIMEDIA_COMMONS_ATTRIBUTION, license: "CC0-1.0" },
-  { id: "cc0-laurel-pair-wide", name: "Wide laurel pair", category: "laurels", url: "/artwork/cc0-laurels/laurel-pair-wide.svg", width: 900, height: 307.26953, attribution: WIKIMEDIA_COMMONS_ATTRIBUTION, license: "CC0-1.0" },
+  { id: "cc0-laurel-pair-wide", name: "Wide laurel pair", category: "laurels", url: "/artwork/cc0-laurels/laurel-pair-wide.svg", width: 555, height: 288, attribution: WIKIMEDIA_COMMONS_ATTRIBUTION, license: "CC0-1.0" },
 ]
 
 const artworkById = new Map(BUILT_IN_ARTWORK.map((artwork) => [artwork.id, artwork]))
