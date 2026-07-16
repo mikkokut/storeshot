@@ -12,6 +12,8 @@ scripts, and AI coding agents can all inspect and change.
 StoreShot is already used in production for the iOS app
 [Lokimaps](https://www.lokimaps.com/).
 
+![StoreShot visual editor showing an App Store screenshot set for Lokimaps](docs/images/storeshot-editor.png)
+
 ## Why StoreShot?
 
 Many existing screenshot tools were designed as closed, manual design silos.
