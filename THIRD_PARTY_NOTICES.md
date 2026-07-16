@@ -29,6 +29,22 @@ Paweł Kuna, under the MIT License.
 The selected source files, upstream revision, attribution, and complete license
 are retained in `src/ui/public/artwork/tabler/` and shipped with the browser UI.
 
+### CC0 laurel artwork
+
+StoreShot includes three laurel vectors obtained from Wikimedia Commons, plus a
+wide pair derived from the single branch. They are dedicated to the public
+domain under CC0 1.0:
+
+- [Steren-Laurel.svg](https://commons.wikimedia.org/wiki/File:Steren-Laurel.svg)
+  by Steren
+- [Greek Roman Laurel wreath vector.svg](https://commons.wikimedia.org/wiki/File:Greek_Roman_Laurel_wreath_vector.svg)
+  by Dalovar
+- [Laurel-right.svg](https://commons.wikimedia.org/wiki/File:Laurel-right.svg)
+  by Leki, based on work by Indolences; also used for StoreShot's wide pair
+
+The source links, authorship, and complete CC0 1.0 legal text are retained in
+`src/ui/public/artwork/cc0-laurels/` and shipped with the browser UI.
+
 ### Geist
 
 StoreShot self-hosts the Geist variable font through

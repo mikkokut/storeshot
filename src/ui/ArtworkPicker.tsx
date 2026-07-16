@@ -26,7 +26,7 @@ export function ArtworkPicker({ open, onClose, onSelect }: {
       <div className="flex shrink-0 items-start justify-between border-b px-3 py-2.5">
         <div>
           <p className="text-sm font-semibold">Add artwork</p>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">Reusable MIT-licensed vectors</p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">Reusable open-licensed vectors</p>
         </div>
         <Button aria-label="Close artwork picker" size="icon-xs" type="button" variant="ghost" onClick={onClose}>
           <X className="size-3.5" />
@@ -82,7 +82,7 @@ export function ArtworkPicker({ open, onClose, onSelect }: {
 
       <div className="flex shrink-0 items-center gap-2 border-t px-3 py-2 text-[10px] text-muted-foreground">
         <Sparkles className="size-3.5" />
-        Tabler Icons · MIT. All artwork can be recolored.
+        MIT and CC0 artwork. All vectors can be recolored.
       </div>
     </div>
   )

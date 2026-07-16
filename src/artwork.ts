@@ -10,10 +10,11 @@ export interface BuiltInArtworkDefinition {
   width: number
   height: number
   attribution: string
-  license: "MIT"
+  license: "MIT" | "CC0-1.0"
 }
 
 const TABLER_ATTRIBUTION = "Tabler Icons"
+const WIKIMEDIA_COMMONS_ATTRIBUTION = "Wikimedia Commons"
 
 export const BUILT_IN_ARTWORK: BuiltInArtworkDefinition[] = [
   { id: "tabler-grid-pattern", name: "Grid pattern", category: "decor", url: "/artwork/tabler/filled/grid-pattern.svg", width: 24, height: 24, attribution: TABLER_ATTRIBUTION, license: "MIT" },
@@ -25,6 +26,10 @@ export const BUILT_IN_ARTWORK: BuiltInArtworkDefinition[] = [
   { id: "tabler-laurel-wreath-1", name: "Laurel wreath 1", category: "laurels", url: "/artwork/tabler/filled/laurel-wreath-1.svg", width: 24, height: 24, attribution: TABLER_ATTRIBUTION, license: "MIT" },
   { id: "tabler-laurel-wreath-2", name: "Laurel wreath 2", category: "laurels", url: "/artwork/tabler/filled/laurel-wreath-2.svg", width: 24, height: 24, attribution: TABLER_ATTRIBUTION, license: "MIT" },
   { id: "tabler-laurel-wreath-3", name: "Laurel wreath 3", category: "laurels", url: "/artwork/tabler/filled/laurel-wreath-3.svg", width: 24, height: 24, attribution: TABLER_ATTRIBUTION, license: "MIT" },
+  { id: "cc0-laurel-wreath-classic", name: "Classic laurel wreath", category: "laurels", url: "/artwork/cc0-laurels/laurel-wreath-classic.svg", width: 564.23, height: 574.03, attribution: WIKIMEDIA_COMMONS_ATTRIBUTION, license: "CC0-1.0" },
+  { id: "cc0-laurel-wreath-natural", name: "Natural laurel wreath", category: "laurels", url: "/artwork/cc0-laurels/laurel-wreath-natural.svg", width: 595.3, height: 519.9, attribution: WIKIMEDIA_COMMONS_ATTRIBUTION, license: "CC0-1.0" },
+  { id: "cc0-laurel-branch", name: "Laurel branch", category: "laurels", url: "/artwork/cc0-laurels/laurel-branch.svg", width: 244.14168, height: 307.26953, attribution: WIKIMEDIA_COMMONS_ATTRIBUTION, license: "CC0-1.0" },
+  { id: "cc0-laurel-pair-wide", name: "Wide laurel pair", category: "laurels", url: "/artwork/cc0-laurels/laurel-pair-wide.svg", width: 900, height: 307.26953, attribution: WIKIMEDIA_COMMONS_ATTRIBUTION, license: "CC0-1.0" },
 ]
 
 const artworkById = new Map(BUILT_IN_ARTWORK.map((artwork) => [artwork.id, artwork]))
