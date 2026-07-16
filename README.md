@@ -32,6 +32,8 @@ database, hosted project, or remote backend.
 - Use undo/redo, copy/paste, alignment guides, layers, keyboard movement, and
   canvas zoom.
 - Export an entire set as full-resolution PNG files in a ZIP archive.
+- Inspect, validate, edit, and render projects from the CLI with stable JSON
+  output for scripts and AI agents.
 - Import portable device-mockup bundles with explicit frame geometry and license
   metadata.
 - Persist everything inside the selected project directory.
@@ -43,6 +45,7 @@ StoreShot requires Node.js 22.12 or newer.
 ```bash
 npm install --global storeshot
 mkdir app-store-screenshots
+storeshot init app-store-screenshots --app-name "Example App" --platform ios
 storeshot dev app-store-screenshots
 ```
 
@@ -55,6 +58,26 @@ storeshot dev ./app-store-screenshots --port 4174 --no-open
 
 The default server is bound to the loopback interface. Be deliberate when using
 `--host` to expose it to another interface.
+
+## CLI and AI agents
+
+StoreShot supports the full screenshot workflow without requiring browser
+automation. Commands can inspect the project, create and update sets, manage
+assets, validate direct JSON edits, and render real PNG previews or final
+output. Global `-C/--project` selects the project and `--json` provides stable
+machine-readable results.
+
+```bash
+storeshot -C ./app-store-screenshots status --json
+storeshot -C ./app-store-screenshots validate --json
+storeshot -C ./app-store-screenshots set show <set-id>
+storeshot -C ./app-store-screenshots render --set <set-id> --scale 0.25 --json
+```
+
+When `storeshot dev` is open, CLI and direct filesystem changes are streamed to
+the browser so the selected set and preview update in realtime. See the
+[CLI and agent workflow](docs/cli.md) for the complete command surface and a
+recommended inspect-edit-validate-render loop.
 
 ## Project format
 
@@ -78,13 +101,17 @@ app-store-screenshots/
     └── finnish-iphone-e5f6g7h8.json
 ```
 
+CLI renders are written to `renders/<set-id>/` by default. They are generated
+output; teams can commit or ignore them according to their release workflow.
+
 Each set stores its locale, device, output dimensions, ordered screenshots, and
 canvas layers. StoreShot only serves files inside the selected project boundary.
 Project assets and imported bundles remain subject to their own licenses.
 
-The editor can load fonts from [Bunny Fonts](https://fonts.bunny.net/) on demand.
-The project itself remains local, but selecting a hosted font requires a network
-request to Bunny Fonts.
+The editor and CLI renderer load fonts from [Bunny Fonts](https://fonts.bunny.net/)
+on demand. The project itself remains local, but the first browser or CLI render
+of a hosted font requires a network request to Bunny Fonts. The CLI caches the
+downloaded font files in the operating system's temporary directory.
 
 ## Device mockups
 

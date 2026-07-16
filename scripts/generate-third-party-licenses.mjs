@@ -13,6 +13,7 @@ const distributedPackages = [
   "@fontsource-variable/geist",
   "class-variance-authority",
   "clsx",
+  "canvas",
   "commander",
   "fabric",
   "lucide-react",
@@ -45,6 +46,13 @@ const reviewedLicenseExpressions = new Set([
   "Python-2.0",
 ])
 
+// canvas 3.x declares MIT in package.json, but its npm `files` allowlist omits
+// the upstream LICENSE. Keep a reviewed verbatim copy in the repository so the
+// direct native rendering dependency remains covered by the generated notice.
+const licenseFileOverrides = new Map([
+  ["canvas", ["third_party/node-canvas-LICENSE"]],
+])
+
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"))
 }
@@ -59,10 +67,12 @@ function licenseFiles(packageName) {
     throw new Error(`${packageName} is not installed; run npm ci first`)
   }
 
-  return fs.readdirSync(directory)
+  const packagedFiles = fs.readdirSync(directory)
     .filter((fileName) => /^(licen[cs]e)(\..+)?$/i.test(fileName))
     .sort()
     .map((fileName) => path.join(directory, fileName))
+  const overrides = (licenseFileOverrides.get(packageName) ?? []).map((fileName) => path.join(repositoryRoot, fileName))
+  return [...packagedFiles, ...overrides]
 }
 
 function validateDependencyLicenses() {

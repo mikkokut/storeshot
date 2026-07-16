@@ -96,11 +96,11 @@ export class ProjectStore {
 
   async readConfig(): Promise<StoreShotConfig> {
     const value: unknown = JSON.parse(await this.readManagedFile(this.configPath, this.root, "utf8"))
-    return parseConfig(value)
+    return parseStoreShotConfig(value)
   }
 
   async writeConfig(config: StoreShotConfig): Promise<StoreShotConfig> {
-    const value = parseConfig(config)
+    const value = parseStoreShotConfig(config)
     await this.runExclusive(this.configPath, async () => {
       await this.assertSafeWriteTarget(this.configPath, this.root)
       await writeJson(this.configPath, value)
@@ -189,7 +189,7 @@ export class ProjectStore {
     const sets = await Promise.all(
       entries
         .filter((entry) => entry.isFile() && path.extname(entry.name) === ".json")
-        .map(async (entry) => parseSet(JSON.parse(await this.readManagedFile(path.join(this.setsPath, entry.name), this.setsPath, "utf8")))),
+        .map(async (entry) => parseScreenshotSet(JSON.parse(await this.readManagedFile(path.join(this.setsPath, entry.name), this.setsPath, "utf8")))),
     )
     return sets.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
   }
@@ -267,7 +267,7 @@ export class ProjectStore {
     if (id !== set.id) throw new Error("Set id cannot be changed")
     const target = this.resolveSet(id)
     return this.runExclusive(target, async () => {
-      const value = parseSet({ ...set, updatedAt: new Date().toISOString() })
+      const value = parseScreenshotSet({ ...set, updatedAt: new Date().toISOString() })
       await this.assertSafeWriteTarget(target, this.setsPath)
       await writeJson(target, value)
       return value
@@ -278,8 +278,8 @@ export class ProjectStore {
     const metadata = parseSetMetadataInput(input)
     const target = this.resolveSet(id)
     return this.runExclusive(target, async () => {
-      const current = parseSet(JSON.parse(await this.readManagedFile(target, this.setsPath, "utf8")))
-      const value = parseSet({ ...current, ...metadata, updatedAt: new Date().toISOString() })
+      const current = parseScreenshotSet(JSON.parse(await this.readManagedFile(target, this.setsPath, "utf8")))
+      const value = parseScreenshotSet({ ...current, ...metadata, updatedAt: new Date().toISOString() })
       await writeJson(target, value)
       return value
     })
@@ -501,9 +501,9 @@ export class ProjectStore {
     return value
   }
 
-  private async readSet(id: string): Promise<ScreenshotSet> {
+  async readSet(id: string): Promise<ScreenshotSet> {
     const target = this.resolveSet(id)
-    return parseSet(JSON.parse(await this.readManagedFile(target, this.setsPath, "utf8")))
+    return parseScreenshotSet(JSON.parse(await this.readManagedFile(target, this.setsPath, "utf8")))
   }
 
   private async runExclusive<T>(key: string, operation: () => Promise<T>): Promise<T> {
@@ -597,14 +597,16 @@ function hash(contents: Buffer): string {
   return createHash("sha256").update(contents).digest("hex")
 }
 
-function parseConfig(value: unknown): StoreShotConfig {
+export function parseStoreShotConfig(value: unknown): StoreShotConfig {
   if (!isRecord(value)) throw new Error("storeshot.json must contain a JSON object")
+  if (value.version !== 1) throw new Error("Unsupported storeshot.json version")
 
   const appName = readString(value.appName, "appName")
-  const platforms = Array.isArray(value.platforms)
-    ? value.platforms.filter((platform): platform is "ios" | "android" => platform === "ios" || platform === "android")
-    : []
-  if (platforms.length === 0) throw new Error("platforms must include ios or android")
+  if (!Array.isArray(value.platforms) || value.platforms.length === 0
+    || value.platforms.some((platform) => platform !== "ios" && platform !== "android")) {
+    throw new Error("platforms must contain only ios or android")
+  }
+  const platforms = value.platforms as Array<"ios" | "android">
 
   return { version: 1, appName, platforms: [...new Set(platforms)] }
 }
@@ -639,8 +641,9 @@ function parseSetMetadataInput(value: unknown): UpdateSetMetadataInput {
   }
 }
 
-function parseSet(value: unknown): ScreenshotSet {
+export function parseScreenshotSet(value: unknown): ScreenshotSet {
   if (!isRecord(value)) throw new Error("Set file must contain an object")
+  if (value.version !== 1) throw new Error("Unsupported set file version")
 
   const id = readString(value.id, "Set id")
   if (!safeIdentifierPattern.test(id)) throw new Error("Set id is invalid")

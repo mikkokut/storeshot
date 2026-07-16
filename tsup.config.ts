@@ -5,7 +5,7 @@ export default defineConfig({
   format: ["esm"],
   clean: true,
   sourcemap: true,
-  external: ["vite"],
+  external: ["canvas", "fabric", "fabric/node", "vite"],
   banner: {
     js: "#!/usr/bin/env node",
   },

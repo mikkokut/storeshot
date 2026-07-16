@@ -29,6 +29,7 @@
     "CONTRIBUTING.md",
     "dist",
     "docs",
+    "fonts",
     "LICENSE",
     "README.md",
     "SECURITY.md",
@@ -54,6 +55,7 @@
   "dependencies": {
     "@base-ui/react": "^1.6.0",
     "@fontsource-variable/geist": "^5.2.9",
+    "canvas": "^3.2.3",
     "commander": "^15.0.0",
     "fabric": "^7.4.0",
     "open": "^11.0.0",

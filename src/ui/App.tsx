@@ -31,6 +31,8 @@ type AppRoute =
   | { kind: "set"; setId: string }
   | { kind: "unknown" }
 
+type ProjectChangeScope = "assets" | "config" | "mockups" | "project" | "sets"
+
 export function App() {
   const [project, setProject] = useState<StoreShotProject | null>(null)
   const [pathname, setPathname] = useState(() => window.location.pathname)
@@ -47,6 +49,30 @@ export function App() {
   }, [])
 
   useEffect(() => {
+    const events = new EventSource("/api/events")
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined
+    const handleProjectChange = (event: MessageEvent<string>) => {
+      let scopes = new Set<ProjectChangeScope>(["project"])
+      try {
+        const value = JSON.parse(event.data) as { scopes?: ProjectChangeScope[] }
+        if (value.scopes?.length) scopes = new Set(value.scopes)
+      } catch {
+        // A full refresh is the safe fallback for an unknown event payload.
+      }
+      if (refreshTimer) clearTimeout(refreshTimer)
+      refreshTimer = setTimeout(() => {
+        void refresh(scopes)
+        if (scopes.has("mockups") || scopes.has("project")) window.dispatchEvent(new Event("storeshot:mockups-changed"))
+      }, 50)
+    }
+    events.addEventListener("project", handleProjectChange as EventListener)
+    return () => {
+      if (refreshTimer) clearTimeout(refreshTimer)
+      events.close()
+    }
+  }, [])
+
+  useEffect(() => {
     if (!project) return
     const canonicalPath = canonicalProjectPath(pathname, project)
     if (canonicalPath === pathname) return
@@ -54,10 +80,18 @@ export function App() {
     setPathname(canonicalPath)
   }, [pathname, project])
 
-  async function refresh() {
+  async function refresh(scopes?: Set<ProjectChangeScope>) {
     try {
       const nextProject = await request<StoreShotProject>("/api/project")
-      setProject(nextProject)
+      setProject((current) => {
+        if (!current || !scopes || scopes.has("project")) return nextProject
+        return {
+          ...nextProject,
+          config: scopes.has("config") ? nextProject.config : current.config,
+          assets: scopes.has("assets") ? nextProject.assets : current.assets,
+          sets: scopes.has("sets") ? nextProject.sets : current.sets,
+        }
+      })
       setError(null)
     } catch (nextError) {
       setError(messageFor(nextError))

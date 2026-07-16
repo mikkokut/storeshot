@@ -51,3 +51,50 @@ test("local API returns typed client errors and hides unexpected failures", asyn
     await rm(projectDirectory, { recursive: true, force: true })
   }
 })
+
+test("local API streams project file changes to an open preview", async () => {
+  const projectDirectory = await mkdtemp(path.join(tmpdir(), "storeshot-server-events-test-"))
+  const service = await startServer({
+    host: "127.0.0.1",
+    port: 0,
+    packageRoot: process.cwd(),
+    projectDirectory,
+    useVite: false,
+  })
+  const controller = new AbortController()
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${service.port}/api/events`, { signal: controller.signal })
+    assert.equal(response.status, 200)
+    assert.ok(response.body)
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    await readEventUntil(reader, decoder, "event: ready")
+
+    await writeFile(path.join(projectDirectory, "storeshot.json"), `${JSON.stringify({ version: 1, appName: "Changed", platforms: ["ios"] }, null, 2)}\n`)
+    const event = await readEventUntil(reader, decoder, "event: project")
+    assert.match(event, /"config"/)
+  } finally {
+    controller.abort()
+    await service.close()
+    await rm(projectDirectory, { recursive: true, force: true })
+  }
+})
+
+async function readEventUntil(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  decoder: TextDecoder,
+  pattern: string,
+): Promise<string> {
+  let contents = ""
+  const timeout = AbortSignal.timeout(5_000)
+  while (!contents.includes(pattern)) {
+    const result = await Promise.race([
+      reader.read(),
+      new Promise<never>((_, reject) => timeout.addEventListener("abort", () => reject(new Error(`Timed out waiting for ${pattern}`)), { once: true })),
+    ])
+    if (result.done) throw new Error(`Event stream ended before ${pattern}`)
+    contents += decoder.decode(result.value, { stream: true })
+  }
+  return contents
+}

@@ -1,4 +1,4 @@
-import { createReadStream } from "node:fs"
+import { createReadStream, watch, type FSWatcher } from "node:fs"
 import { readFile, stat } from "node:fs/promises"
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
 import type { AddressInfo } from "node:net"
@@ -22,6 +22,7 @@ interface StartServerOptions {
 export async function startServer(options: StartServerOptions) {
   const store = new ProjectStore(options.projectDirectory)
   await store.initialize()
+  const projectEvents = new ProjectEventHub(store.root)
 
   let vite: ViteDevServer | undefined
   if (options.useVite) {
@@ -36,7 +37,7 @@ export async function startServer(options: StartServerOptions) {
   const server = createServer(async (request, response) => {
     try {
       if ((request.url ?? "").startsWith("/api/")) assertAllowedBrowserRequest(request, options.host)
-      if (await handleApiRequest(request, response, store)) return
+      if (await handleApiRequest(request, response, store, projectEvents)) return
       if (vite) {
         vite.middlewares(request, response)
         return
@@ -59,6 +60,7 @@ export async function startServer(options: StartServerOptions) {
     store,
     port: (server.address() as AddressInfo).port,
     close: async () => {
+      projectEvents.close()
       await vite?.close()
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()))
@@ -71,8 +73,14 @@ async function handleApiRequest(
   request: IncomingMessage,
   response: ServerResponse,
   store: ProjectStore,
+  projectEvents: ProjectEventHub,
 ): Promise<boolean> {
   const url = new URL(request.url ?? "/", "http://localhost")
+
+  if (request.method === "GET" && url.pathname === "/api/events") {
+    projectEvents.subscribe(request, response)
+    return true
+  }
 
   if (request.method === "GET" && url.pathname === "/api/project") {
     sendJson(response, 200, await store.readProject())
@@ -367,4 +375,71 @@ function contentTypeFor(filename: string): string {
     case ".txt": return "text/plain; charset=utf-8"
     default: return "application/octet-stream"
   }
+}
+
+type ProjectChangeScope = "assets" | "config" | "mockups" | "project" | "sets"
+
+class ProjectEventHub {
+  private readonly clients = new Set<ServerResponse>()
+  private readonly scopes = new Set<ProjectChangeScope>()
+  private readonly watcher: FSWatcher
+  private readonly heartbeat: ReturnType<typeof setInterval>
+  private broadcastTimer: ReturnType<typeof setTimeout> | undefined
+  private revision = 0
+
+  constructor(root: string) {
+    this.watcher = watch(root, { recursive: true, encoding: "utf8" }, (_event, filename) => {
+      const relativePath = typeof filename === "string" ? filename.split(path.sep).join("/") : ""
+      const scope = changeScope(relativePath)
+      if (!scope) return
+      this.scopes.add(scope)
+      if (this.broadcastTimer) clearTimeout(this.broadcastTimer)
+      this.broadcastTimer = setTimeout(() => this.broadcast(), 75)
+    })
+    this.watcher.on("error", (error) => console.error("StoreShot project watcher failed", error))
+    this.heartbeat = setInterval(() => {
+      for (const response of this.clients) response.write(": keep-alive\n\n")
+    }, 15_000)
+    this.heartbeat.unref()
+  }
+
+  subscribe(request: IncomingMessage, response: ServerResponse): void {
+    response.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    })
+    response.write(`event: ready\ndata: ${JSON.stringify({ revision: this.revision })}\n\n`)
+    this.clients.add(response)
+    request.once("close", () => this.clients.delete(response))
+  }
+
+  close(): void {
+    if (this.broadcastTimer) clearTimeout(this.broadcastTimer)
+    clearInterval(this.heartbeat)
+    this.watcher.close()
+    for (const response of this.clients) response.end()
+    this.clients.clear()
+  }
+
+  private broadcast(): void {
+    this.broadcastTimer = undefined
+    if (this.scopes.size === 0) return
+    this.revision += 1
+    const data = JSON.stringify({ revision: this.revision, scopes: [...this.scopes].sort() })
+    this.scopes.clear()
+    for (const response of this.clients) response.write(`event: project\ndata: ${data}\n\n`)
+  }
+}
+
+function changeScope(relativePath: string): ProjectChangeScope | undefined {
+  if (!relativePath) return "project"
+  if (relativePath === "storeshot.json" || relativePath.startsWith(".storeshot.json.")) return "config"
+  if (relativePath === "sets" || relativePath.startsWith("sets/")) return "sets"
+  if (relativePath === "assets" || relativePath.startsWith("assets/")) return "assets"
+  if (relativePath.startsWith("mockup-bundles/.imports/")) return undefined
+  if (relativePath === "mockup-bundles" || relativePath.startsWith("mockup-bundles/")) return "mockups"
+  if (relativePath === "renders" || relativePath.startsWith("renders/")) return undefined
+  return "project"
 }

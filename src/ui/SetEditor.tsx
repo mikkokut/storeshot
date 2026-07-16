@@ -170,18 +170,31 @@ export function SetEditor({ assets, set, onOpenAssets, onSetChange }: SetEditorP
   }, [set.id])
 
   useEffect(() => {
-    setWorkingSet((current) => {
-      const next = {
-        ...current,
-        name: set.name,
-        locale: set.locale,
-        device: set.device,
-        updatedAt: set.updatedAt,
-      }
+    if (set.id !== currentSet.current.id || JSON.stringify(set) === JSON.stringify(currentSet.current)) return
+    const current = currentSet.current
+    const canvasChanged = JSON.stringify(set.canvas) !== JSON.stringify(current.canvas)
+      || JSON.stringify(set.areas) !== JSON.stringify(current.areas)
+    if (!canvasChanged) {
+      const next = { ...current, name: set.name, locale: set.locale, device: set.device, createdAt: set.createdAt, updatedAt: set.updatedAt }
       currentSet.current = next
-      return next
-    })
-  }, [set.name, set.locale, set.device, set.updatedAt])
+      setWorkingSet(next)
+      return
+    }
+    if (persistTimer.current) {
+      clearTimeout(persistTimer.current)
+      persistTimer.current = null
+    }
+    persistRevision.current += 1
+    currentSet.current = set
+    setWorkingSet(set)
+    setSelectedAreaId((current) => set.areas.some((area) => area.id === current) ? current : set.areas[0].id)
+    setSelectedElementId((current) => set.areas.some((area) => area.elements.some((element) => element.id === current)) ? current : null)
+    setSaveState("saved")
+    setError(null)
+    history.current = { past: [], future: [] }
+    historyGroup.current = null
+    setHistoryRevision((revision) => revision + 1)
+  }, [set])
 
   useEffect(() => () => {
     if (persistTimer.current) clearTimeout(persistTimer.current)

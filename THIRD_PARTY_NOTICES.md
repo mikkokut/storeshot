@@ -32,12 +32,21 @@ are retained in `src/ui/public/artwork/tabler/` and shipped with the browser UI.
 ### Geist
 
 StoreShot self-hosts the Geist variable font through
-[`@fontsource-variable/geist`](https://fontsource.org/fonts/geist). Geist is
-Copyright 2024 The Geist Project Authors and licensed under the SIL Open Font
-License 1.1.
+[`@fontsource-variable/geist`](https://fontsource.org/fonts/geist) in the UI and
+the official [Geist font repository](https://github.com/vercel/geist-font) in
+the CLI renderer. Geist is Copyright 2024 The Geist Project Authors and licensed
+under the SIL Open Font License 1.1.
 
 The complete OFL text is shipped at
 `src/ui/public/licenses/geist-OFL-1.1.txt`.
+
+### node-canvas
+
+CLI PNG rendering uses
+[`canvas`](https://github.com/Automattic/node-canvas), Copyright (c) 2010
+LearnBoost and contributors and Copyright (c) 2014 Automattic, Inc and
+contributors, under the MIT License. The upstream license text is reproduced in
+`THIRD_PARTY_LICENSES.txt`.
 
 ## Hosted fonts
 

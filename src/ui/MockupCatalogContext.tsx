@@ -56,6 +56,9 @@ export function MockupCatalogProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void refresh().catch(() => undefined)
+    const handleChange = () => void refresh().catch(() => undefined)
+    window.addEventListener("storeshot:mockups-changed", handleChange)
+    return () => window.removeEventListener("storeshot:mockups-changed", handleChange)
   }, [refresh])
 
   const value = useMemo(() => ({ catalog, error, loading, refresh }), [catalog, error, loading, refresh])
