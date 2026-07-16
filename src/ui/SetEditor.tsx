@@ -119,6 +119,12 @@ const MIN_CANVAS_ZOOM = 0.25
 const MAX_CANVAS_ZOOM = 2
 const CANVAS_ZOOM_STEP = 0.25
 const APP_CLIPBOARD_MIME = "application/x-storeshot"
+const ASSET_PICKER_FILTERS: Array<{ label: string; value: "all" | AssetCategory }> = [
+  { label: "All assets", value: "all" },
+  { label: "Raw screenshots", value: "screenshots" },
+  { label: "Brand assets", value: "brand" },
+  { label: "Other", value: "other" },
+]
 let editorClipboard: EditorClipboard | null = null
 
 export function SetEditor({ assets, set, onOpenAssets, onSetChange }: SetEditorProps) {
@@ -127,6 +133,7 @@ export function SetEditor({ assets, set, onOpenAssets, onSetChange }: SetEditorP
   const [selectedAreaId, setSelectedAreaId] = useState(set.areas[0].id)
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null)
   const [assetPickerOpen, setAssetPickerOpen] = useState(false)
+  const [assetPickerFilter, setAssetPickerFilter] = useState<"all" | AssetCategory>("all")
   const [devicePickerOpen, setDevicePickerOpen] = useState(false)
   const [artworkPickerOpen, setArtworkPickerOpen] = useState(false)
   const [mockupCatalogOpen, setMockupCatalogOpen] = useState(false)
@@ -201,6 +208,8 @@ export function SetEditor({ assets, set, onOpenAssets, onSetChange }: SetEditorP
   }, [])
 
   const allAssets = useMemo(() => Object.values(assets).flat(), [assets])
+  const filteredAssets = assetPickerFilter === "all" ? allAssets : assets[assetPickerFilter]
+  const activeAssetFilter = ASSET_PICKER_FILTERS.find((filter) => filter.value === assetPickerFilter) ?? ASSET_PICKER_FILTERS[0]
   const screenshotAssets = assets.screenshots
   const assetLookup = useMemo(() => new Map(allAssets.map((asset) => [asset.id, asset])), [allAssets])
   const mockupLookup = useMemo(() => new Map(mockupCatalog.mockups.map((mockup) => [mockup.id, mockup])), [mockupCatalog.mockups])
@@ -233,7 +242,9 @@ export function SetEditor({ assets, set, onOpenAssets, onSetChange }: SetEditorP
   useEffect(() => {
     if ((!assetPickerOpen && !devicePickerOpen && !artworkPickerOpen) || mockupCatalogOpen) return
     const closeOnOutsideClick = (event: PointerEvent) => {
-      if (!assetPickerRef.current?.contains(event.target as Node)) {
+      const target = event.target
+      const insidePortaledPickerControl = target instanceof Element && Boolean(target.closest("[data-slot='select-content']"))
+      if (!insidePortaledPickerControl && !assetPickerRef.current?.contains(target as Node)) {
         setAssetPickerOpen(false)
         setDevicePickerOpen(false)
         setArtworkPickerOpen(false)
@@ -897,14 +908,42 @@ export function SetEditor({ assets, set, onOpenAssets, onSetChange }: SetEditorP
                   </div>
                   <Button aria-label="Close asset picker" className="text-muted-foreground" size="icon-sm" type="button" variant="ghost" onClick={() => setAssetPickerOpen(false)}><X className="size-3.5" /></Button>
                 </div>
+                {allAssets.length > 0 && (
+                  <div className="shrink-0 border-b p-2.5">
+                    <Select
+                      value={assetPickerFilter}
+                      onValueChange={(value) => {
+                        if (value !== null) setAssetPickerFilter(value as "all" | AssetCategory)
+                      }}
+                    >
+                      <SelectTrigger aria-label="Filter assets by type" className="w-full" size="sm">
+                        <SelectValue>
+                          <span>{activeAssetFilter.label}</span>
+                          <span className="tabular-nums text-muted-foreground">{filteredAssets.length}</span>
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent align="start">
+                        {ASSET_PICKER_FILTERS.map((filter) => (
+                          <SelectItem key={filter.value} value={filter.value}>
+                            <span>{filter.label}</span>
+                            <span className="tabular-nums text-muted-foreground">
+                              {filter.value === "all" ? allAssets.length : assets[filter.value].length}
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 <div className="min-h-0 flex-1 overflow-auto p-2.5">
-                  {allAssets.length === 0 ? (
+                  {filteredAssets.length === 0 ? (
                     <Button className="h-auto w-full flex-col border-dashed p-5 text-center text-xs whitespace-normal text-muted-foreground" type="button" variant="outline" onClick={onOpenAssets}>
-                      <ImagePlus className="mx-auto mb-2 size-5" />Add assets to the catalog
+                      <ImagePlus className="mx-auto mb-2 size-5" />
+                      {allAssets.length === 0 ? "Add assets to the catalog" : `No ${activeAssetFilter.label.toLowerCase()} yet`}
                     </Button>
                   ) : (
                     <div className="grid grid-cols-3 gap-2">
-                      {allAssets.map((asset) => (
+                      {filteredAssets.map((asset) => (
                         <Button className="group aspect-square h-auto overflow-hidden rounded-lg bg-muted/40 p-0 hover:border-foreground/30" key={asset.id} title={`Place ${asset.name}`} type="button" variant="outline" onClick={() => void placeAsset(asset)}>
                           <img className="h-full w-full object-contain transition-transform group-hover:scale-[1.03]" src={asset.url} alt={asset.name} />
                         </Button>
