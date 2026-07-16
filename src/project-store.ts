@@ -699,6 +699,8 @@ function parseElement(value: unknown): CanvasElement {
     height: readDimension(value.height, "Element height"),
     rotation: readNumber(value.rotation, "Element rotation"),
     opacity: readOptionalRange(value.opacity, 1, 0, 1, "Element opacity"),
+    flipX: readOptionalBoolean(value.flipX, false, "Element horizontal flip"),
+    flipY: readOptionalBoolean(value.flipY, false, "Element vertical flip"),
   }
 
   if (value.type === "image") {
@@ -789,6 +791,12 @@ function readOptionalRange(value: unknown, fallback: number, min: number, max: n
   const result = readNumber(value, name)
   if (result < min || result > max) throw new Error(`${name} is outside the supported range`)
   return result
+}
+
+function readOptionalBoolean(value: unknown, fallback: boolean, name: string): boolean {
+  if (value === undefined) return fallback
+  if (typeof value !== "boolean") throw new Error(`${name} must be a boolean`)
+  return value
 }
 
 function readOptionalString(value: unknown, fallback: string): string {
