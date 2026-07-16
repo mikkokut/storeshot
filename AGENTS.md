@@ -55,6 +55,44 @@ Use Node.js 22.12 or newer and npm. Keep `package-lock.json` synchronized with
   under `src/ui/public/mockup-bundles/`. Keep `playground/.gitkeep` so fresh
   checkouts have the expected development target.
 
+## Day-to-day development workflow
+
+Use this sequence for normal feature, fix, documentation, dependency, and
+maintenance work:
+
+1. Inspect `git status --short --branch` before editing. Preserve unrelated
+   user changes and confirm the requested scope against the current branch.
+2. Continue on the current branch unless the user asks for a branch or pull
+   request. When starting a Codex-owned feature branch, use a focused
+   `codex/<short-description>` name based on the latest `main` requested by the
+   user.
+3. Implement one coherent change. Add or update focused tests with behavior
+   changes, keep shared API types aligned, and update user documentation when
+   commands or behavior change.
+4. Validate in proportion to the change. Run focused checks during iteration,
+   then run `npm run check` before handing off a code or configuration change.
+   Also perform the service and UI verification described below when relevant.
+5. Review `git diff` and `git diff --check`. Do not include unrelated dirty-tree
+   changes, generated output, or local project data.
+6. Do not commit or push unless the user requests it. When asked to commit,
+   choose the Conventional Commit type from the guidance below and keep the
+   commit limited to the completed task. When asked to commit all changes,
+   include the full worktree only after showing and validating that broader
+   scope.
+7. When asked to publish the development work, push the requested branch and
+   create a pull request if the user requested one. Give the PR a Conventional
+   Commit title suitable for its eventual squash commit, and prefer squash merge
+   for one clean changelog entry.
+8. After releasable commits reach `main`, let Release Please create or update
+   its release pull request. Normal feature work stops here: do not manually
+   bump versions, edit released changelog sections, create tags, merge the
+   release PR, or publish npm packages unless the user explicitly requests a
+   release.
+9. When the user requests a release, review the Release Please PR's proposed
+   version, changelog, package files, and checks. Merge that PR only with the
+   user's authorization, then monitor the **Release and publish** workflow and
+   verify the published npm version.
+
 ## Commit and release guidance
 
 Release Please generates versions and changelog entries from commits on `main`.
