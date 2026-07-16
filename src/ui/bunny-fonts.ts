@@ -1,3 +1,5 @@
+import { cache as fabricCache } from "fabric"
+
 import type { FontWeight } from "../shared"
 
 export const FONT_WEIGHTS: FontWeight[] = [100, 200, 300, 400, 500, 600, 700, 800, 900]
@@ -68,6 +70,7 @@ export async function loadBunnyFont(familyName: string, weight: FontWeight): Pro
 
   await stylesheetPromise
   await document.fonts.load(`${weight} 16px ${JSON.stringify(familyName)}`)
+  fabricCache.clearFontCache(familyName)
 }
 
 export async function loadBunnyFontPreviews(fonts: BunnyFont[]): Promise<void> {
