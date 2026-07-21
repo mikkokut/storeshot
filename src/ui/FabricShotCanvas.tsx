@@ -530,9 +530,10 @@ function configureControls(object: FabricObject, element: CanvasElement) {
     padding: 0,
     transparentCorners: false,
   })
-  if (element.type === "mockup") {
+  if (element.type === "mockup" || (element.type === "shape" && element.shape === "circle")) {
     object.setControlsVisibility({ ml: false, mr: false, mt: false, mb: false })
   }
+  if (element.type === "shape" && element.shape === "circle") object.set({ lockUniScaling: true })
 }
 
 function readElement(object: FabricObject, element: CanvasElement, scale: number): CanvasElement {

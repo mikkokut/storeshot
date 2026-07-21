@@ -10,6 +10,7 @@ import {
   Check,
   ChevronsDown,
   ChevronsUp,
+  Circle as CircleIcon,
   Columns2,
   Copy,
   Download,
@@ -701,19 +702,23 @@ export function SetEditor({ assets, set, onOpenAssets, onProjectChange, onSetCha
     }
   }
 
-  function addShape(areaId = selectedArea.id) {
+  function addShape(shape: ShapeElement["shape"], areaId = selectedArea.id) {
+    const circleSize = Math.round(workingSet.canvas.width * 0.36)
+    const strokeWidth = Math.max(2, Math.round(workingSet.canvas.width * 0.004))
     const element: ShapeElement = {
       id: `element-${crypto.randomUUID()}`,
       type: "shape",
-      shape: "rectangle",
-      x: Math.round(workingSet.canvas.width * 0.2),
-      y: Math.round(workingSet.canvas.height * 0.3),
-      width: Math.round(workingSet.canvas.width * 0.6),
-      height: Math.round(workingSet.canvas.height * 0.2),
+      shape,
+      x: Math.round(workingSet.canvas.width * (shape === "circle" ? 0.32 : 0.2)),
+      y: Math.round(workingSet.canvas.height * (shape === "line" ? 0.5 : 0.3)),
+      width: shape === "circle" ? circleSize : Math.round(workingSet.canvas.width * 0.6),
+      height: shape === "circle" ? circleSize : shape === "line" ? 1 : Math.round(workingSet.canvas.height * 0.2),
       rotation: 0,
       opacity: 1,
       fill: "#ffffff",
-      cornerRadius: Math.round(workingSet.canvas.width * 0.025),
+      stroke: "#000000",
+      strokeWidth,
+      cornerRadius: shape === "rectangle" ? Math.round(workingSet.canvas.width * 0.025) : 0,
     }
     addElement(areaId, element)
   }
@@ -911,7 +916,9 @@ export function SetEditor({ assets, set, onOpenAssets, onProjectChange, onSetCha
           <div className="absolute left-3 top-3 z-20" ref={assetPickerRef}>
             <div className="flex flex-col gap-1 rounded-lg border bg-background/95 p-1 shadow-md backdrop-blur-sm">
               <CanvasToolButton label="Add text to selected screenshot" onClick={() => addText()}><Type className="size-4" /></CanvasToolButton>
-              <CanvasToolButton label="Add rectangle to selected screenshot" onClick={() => addShape()}><Square className="size-4" /></CanvasToolButton>
+              <CanvasToolButton label="Add rectangle to selected screenshot" onClick={() => addShape("rectangle")}><Square className="size-4" /></CanvasToolButton>
+              <CanvasToolButton label="Add circle to selected screenshot" onClick={() => addShape("circle")}><CircleIcon className="size-4" /></CanvasToolButton>
+              <CanvasToolButton label="Add line to selected screenshot" onClick={() => addShape("line")}><Minus className="size-4" /></CanvasToolButton>
               <CanvasToolButton active={artworkPickerOpen} label="Add built-in artwork" onClick={() => {
                 setAssetPickerOpen(false)
                 setDevicePickerOpen(false)
@@ -1451,14 +1458,26 @@ function ObjectContextMenu({
       {element.type === "shape" && (
         <>
           <ContextMenuSeparator />
+          {element.shape !== "line" && (
+            <div className="flex items-center justify-between px-2 py-1 text-xs">
+              <span>Fill color</span>
+              <ColorPicker compact label="Fill color" usedColors={usedColors} value={element.fill} onValueChange={(fill) => onUpdate({ fill })} />
+            </div>
+          )}
           <div className="flex items-center justify-between px-2 py-1 text-xs">
-            <span>Fill color</span>
-            <ColorPicker compact label="Fill color" usedColors={usedColors} value={element.fill} onValueChange={(fill) => onUpdate({ fill })} />
+            <span>Stroke color</span>
+            <ColorPicker compact label="Stroke color" usedColors={usedColors} value={element.stroke} onValueChange={(stroke) => onUpdate({ stroke })} />
           </div>
           <label className="flex items-center justify-between gap-3 px-2 py-1 text-xs">
-            <span>Corner radius</span>
-            <Input className="h-7 w-20 text-right text-xs" min={0} type="number" value={Math.round(element.cornerRadius)} onChange={(event) => onUpdate({ cornerRadius: Math.max(0, Number(event.target.value)) })} />
+            <span>Stroke width</span>
+            <Input className="h-7 w-20 text-right text-xs" min={0} type="number" value={Math.round(element.strokeWidth)} onChange={(event) => onUpdate({ strokeWidth: Math.max(0, Number(event.target.value)) })} />
           </label>
+          {element.shape === "rectangle" && (
+            <label className="flex items-center justify-between gap-3 px-2 py-1 text-xs">
+              <span>Corner radius</span>
+              <Input className="h-7 w-20 text-right text-xs" min={0} type="number" value={Math.round(element.cornerRadius)} onChange={(event) => onUpdate({ cornerRadius: Math.max(0, Number(event.target.value)) })} />
+            </label>
+          )}
         </>
       )}
 
@@ -1818,8 +1837,10 @@ function ShapeInspector({ element, usedColors, update, persist }: {
 }) {
   return (
     <div className="grid grid-cols-2 gap-2">
-      <Field label="Fill"><ColorPicker label="Shape fill color" usedColors={usedColors} value={element.fill} onValueChange={(fill) => update({ fill })} onValueCommit={persist} /></Field>
-      <NumberField label="Corner radius" min={0} value={element.cornerRadius} onChange={(cornerRadius) => update({ cornerRadius })} onBlur={persist} />
+      {element.shape !== "line" && <Field label="Fill"><ColorPicker label="Shape fill color" usedColors={usedColors} value={element.fill} onValueChange={(fill) => update({ fill })} onValueCommit={persist} /></Field>}
+      <Field label="Stroke"><ColorPicker label="Shape stroke color" usedColors={usedColors} value={element.stroke} onValueChange={(stroke) => update({ stroke })} onValueCommit={persist} /></Field>
+      <NumberField label="Stroke width" min={0} value={element.strokeWidth} onChange={(strokeWidth) => update({ strokeWidth })} onBlur={persist} />
+      {element.shape === "rectangle" && <NumberField label="Corner radius" min={0} value={element.cornerRadius} onChange={(cornerRadius) => update({ cornerRadius })} onBlur={persist} />}
     </div>
   )
 }
@@ -1835,13 +1856,17 @@ function GeometryInspector({ element, update, persist }: {
   function updateWidth(width: number) {
     update(mockup
       ? { width, height: Math.max(1, Math.round(width * mockup.height / mockup.width)) }
-      : { width })
+      : element.type === "shape" && element.shape === "circle"
+        ? { width, height: width }
+        : { width })
   }
 
   function updateHeight(height: number) {
     update(mockup
       ? { width: Math.max(1, Math.round(height * mockup.width / mockup.height)), height }
-      : { height })
+      : element.type === "shape" && element.shape === "circle"
+        ? { width: height, height }
+        : { height })
   }
 
   return (
@@ -1960,7 +1985,7 @@ function colorsUsedInSet(set: ScreenshotSet): string[] {
     colors.push(area.background)
     for (const element of area.elements) {
       if (element.type === "text") colors.push(element.color)
-      if (element.type === "shape") colors.push(element.fill)
+      if (element.type === "shape") colors.push(element.fill, element.stroke)
       if (element.type === "image" && element.fill) colors.push(element.fill)
     }
   }
@@ -2087,6 +2112,8 @@ function LayerIcon({ element }: { element: CanvasElement }) {
   if (element.type === "text") return <Type className="size-3.5 text-muted-foreground" />
   if (element.type === "image") return <ImageIcon className="size-3.5 text-muted-foreground" />
   if (element.type === "mockup") return <Smartphone className="size-3.5 text-muted-foreground" />
+  if (element.shape === "circle") return <CircleIcon className="size-3.5 text-muted-foreground" />
+  if (element.shape === "line") return <Minus className="size-3.5 text-muted-foreground" />
   return <Square className="size-3.5 text-muted-foreground" />
 }
 
@@ -2098,14 +2125,14 @@ function elementLabel(element: CanvasElement, assets: Map<string, Asset>, catalo
       : assets.get(element.source.assetId)?.name ?? "Image"
   }
   if (element.type === "mockup") return deviceMockupById(catalog, element.mockupId)?.name ?? "Device mockup"
-  return "Rectangle"
+  return shapeLabel(element.shape)
 }
 
 function elementTitle(element: CanvasElement): string {
   if (element.type === "text") return "Text layer"
   if (element.type === "image") return "Image layer"
   if (element.type === "mockup") return "Device mockup"
-  return "Rectangle layer"
+  return `${shapeLabel(element.shape)} layer`
 }
 
 async function imageDimensions(url: string): Promise<{ width: number; height: number }> {
@@ -2147,5 +2174,9 @@ function clipboardLabel(clipboard: EditorClipboard): string {
   if (clipboard.element.type === "text") return clipboard.element.text
   if (clipboard.element.type === "image") return "StoreShot image layer"
   if (clipboard.element.type === "mockup") return "StoreShot device mockup layer"
-  return "StoreShot rectangle layer"
+  return `StoreShot ${clipboard.element.shape} layer`
+}
+
+function shapeLabel(shape: ShapeElement["shape"]): string {
+  return shape.charAt(0).toUpperCase() + shape.slice(1)
 }

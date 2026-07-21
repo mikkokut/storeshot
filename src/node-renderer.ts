@@ -3,8 +3,10 @@ import path from "node:path"
 
 import { createCanvas, loadImage, type Canvas, type Image as CanvasImage } from "canvas"
 import {
+  Circle,
   FabricImage,
   Group,
+  Line,
   Rect,
   StaticCanvas,
   Textbox,
@@ -130,7 +132,11 @@ async function renderArea(
 
 async function createFabricObject(element: CanvasElement, resources: RenderResources): Promise<FabricObject> {
   if (element.type === "text") return new Textbox(element.text, { editable: false, lockScalingFlip: true, minWidth: 24 })
-  if (element.type === "shape") return new Rect({ lockScalingFlip: true })
+  if (element.type === "shape") {
+    if (element.shape === "circle") return new Circle({ lockScalingFlip: true, radius: 0.5 })
+    if (element.shape === "line") return new Line([0, 0, 1, 1], { lockScalingFlip: true })
+    return new Rect({ lockScalingFlip: true })
+  }
 
   if (element.type === "mockup") {
     const screenshot = resources.assetSources.get(element.assetId)
@@ -186,17 +192,23 @@ function applyCanvasElement(object: FabricObject, element: CanvasElement, scale:
       width: Math.max(24, element.width * scale),
     })
     object.initDimensions()
-  } else if (element.type === "shape" && object instanceof Rect) {
+  } else if (element.type === "shape") {
     object.set({
       fill: element.fill,
-      height: element.height * scale,
-      rx: element.cornerRadius * scale,
-      ry: element.cornerRadius * scale,
-      scaleX: 1,
-      scaleY: 1,
-      strokeWidth: 0,
-      width: element.width * scale,
+      scaleX: element.shape === "rectangle" ? 1 : element.width * scale,
+      scaleY: element.shape === "rectangle" ? 1 : element.height * scale,
+      stroke: element.stroke,
+      strokeUniform: true,
+      strokeWidth: element.strokeWidth * scale,
     })
+    if (element.shape === "rectangle" && object instanceof Rect) {
+      object.set({
+        height: element.height * scale,
+        rx: element.cornerRadius * scale,
+        ry: element.cornerRadius * scale,
+        width: element.width * scale,
+      })
+    }
   } else {
     object.set({
       scaleX: (element.width * scale) / Math.max(1, object.width),

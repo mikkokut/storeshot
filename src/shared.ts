@@ -83,8 +83,10 @@ export interface TextElement extends CanvasElementBase {
 
 export interface ShapeElement extends CanvasElementBase {
   type: "shape"
-  shape: "rectangle"
+  shape: "circle" | "line" | "rectangle"
   fill: string
+  stroke: string
+  strokeWidth: number
   cornerRadius: number
 }
 

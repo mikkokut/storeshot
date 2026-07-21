@@ -760,14 +760,20 @@ function parseElement(value: unknown): CanvasElement {
   }
 
   if (value.type === "shape") {
-    if (value.shape !== "rectangle") throw new Error("Shape type is invalid")
+    if (value.shape !== "circle" && value.shape !== "line" && value.shape !== "rectangle") {
+      throw new Error("Shape type is invalid")
+    }
     const fill = readString(value.fill, "Shape fill")
     if (!hexColorPattern.test(fill)) throw new Error("Shape fill must be a hex color")
+    const stroke = readOptionalString(value.stroke, fill)
+    if (!hexColorPattern.test(stroke)) throw new Error("Shape stroke must be a hex color")
     return {
       ...base,
       type: "shape",
       shape: value.shape,
       fill,
+      stroke,
+      strokeWidth: readOptionalRange(value.strokeWidth, 0, 0, 10_000, "Shape stroke width"),
       cornerRadius: readOptionalRange(value.cornerRadius, 0, 0, 10_000, "Shape corner radius"),
     }
   }

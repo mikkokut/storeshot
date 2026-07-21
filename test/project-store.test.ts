@@ -6,6 +6,7 @@ import test from "node:test"
 
 import { DuplicateAssetError, ProjectStore } from "../src/project-store.js"
 import type { MockupBundleManifest } from "../src/device-mockups.js"
+import type { ShapeElement } from "../src/shared.js"
 
 const png = (width: number, height: number) => {
   const contents = Buffer.alloc(24)
@@ -83,6 +84,39 @@ test("set writes preserve horizontal and vertical layer flips", async () => {
     const saved = (await store.listSets()).find((set) => set.id === created.id)
     assert.equal(saved?.areas[0].elements[0].flipX, true)
     assert.equal(saved?.areas[0].elements[0].flipY, true)
+  })
+})
+
+test("set writes preserve circle, line, and rectangle styles", async () => {
+  await withStore(async (store) => {
+    const created = await store.createSet({ name: "Styled shapes", locale: "en-US", device: "iPhone", width: 1290, height: 2796 })
+    const shapes: ShapeElement[] = (["circle", "line", "rectangle"] as const).map((shape, index) => ({
+      id: `element-${shape}`,
+      type: "shape",
+      shape,
+      x: 100,
+      y: 200 + index * 100,
+      width: 300,
+      height: shape === "circle" ? 300 : 100,
+      rotation: 0,
+      opacity: 1,
+      fill: "#112233",
+      stroke: "#abcdef",
+      strokeWidth: 12,
+      cornerRadius: shape === "rectangle" ? 24 : 0,
+    }))
+    created.areas[0].elements.push(...shapes)
+
+    await store.writeSet(created.id, created)
+
+    const saved = (await store.listSets()).find((set) => set.id === created.id)
+    assert.deepEqual(saved?.areas[0].elements.slice(-3).map((element) => element.type === "shape" && ({
+      shape: element.shape,
+      fill: element.fill,
+      stroke: element.stroke,
+      strokeWidth: element.strokeWidth,
+      cornerRadius: element.cornerRadius,
+    })), shapes.map(({ shape, fill, stroke, strokeWidth, cornerRadius }) => ({ shape, fill, stroke, strokeWidth, cornerRadius })))
   })
 })
 
