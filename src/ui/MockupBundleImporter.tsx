@@ -32,7 +32,7 @@ export function MockupBundleImporter({ onImported }: { onImported: (firstMockupI
     const urls = new Map<string, string>()
     if (!pending) return urls
     for (const mockup of pending.manifest.mockups) {
-      const preview = pending.files.get(mockup.thumbnail ?? mockup.frame)
+      const preview = pending.files.get(mockup.frame) ?? (mockup.thumbnail ? pending.files.get(mockup.thumbnail) : undefined)
       if (preview) urls.set(mockup.id, URL.createObjectURL(preview))
     }
     return urls
@@ -135,7 +135,7 @@ export function MockupBundleImporter({ onImported }: { onImported: (firstMockupI
       {error && !pending && <span className="max-w-64 text-xs text-destructive">{error}</span>}
 
       <Dialog open={pending !== null} onOpenChange={(open) => !open && !busy && setPending(null)}>
-        <DialogContent className="grid h-[min(760px,calc(100vh-2rem))] max-w-3xl grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0">
+        <DialogContent className="grid h-[min(840px,calc(100vh-2rem))] max-w-5xl grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0">
           <DialogHeader className="border-b px-5 py-4 pr-14">
             <DialogTitle>Import {pending?.manifest.name ?? "mockup bundle"}</DialogTitle>
             <DialogDescription>
@@ -165,7 +165,7 @@ export function MockupBundleImporter({ onImported }: { onImported: (firstMockupI
                       <Button
                         aria-pressed={selected}
                         className={cn(
-                          "relative h-auto min-h-36 flex-col items-stretch justify-start gap-0 overflow-hidden p-0 text-left",
+                          "relative h-auto flex-col items-stretch justify-start gap-0 overflow-hidden p-0 text-left",
                           selected && "border-foreground ring-1 ring-foreground",
                         )}
                         key={mockup.id}
@@ -173,8 +173,10 @@ export function MockupBundleImporter({ onImported }: { onImported: (firstMockupI
                         variant="outline"
                         onClick={() => toggleMockup(mockup.id)}
                       >
-                        <span className="grid h-24 place-items-center overflow-hidden bg-muted/40 p-2">
-                          {previewUrl && <img alt="" className="max-h-full max-w-full object-contain" src={previewUrl} />}
+                        <span className="relative aspect-[4/3] overflow-hidden bg-muted/40">
+                          <span className="absolute inset-3">
+                            {previewUrl && <img alt="" className="absolute inset-0 size-full object-contain" loading="lazy" src={previewUrl} />}
+                          </span>
                         </span>
                         <span className="min-w-0 border-t px-3 py-2">
                           <span className="block truncate text-xs font-medium">{mockup.name}</span>
