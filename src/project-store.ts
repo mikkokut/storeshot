@@ -778,6 +778,17 @@ function parseElement(value: unknown): CanvasElement {
     }
   }
 
+  if (value.type === "group") {
+    if (!Array.isArray(value.children) || value.children.length < 2) {
+      throw new Error("Group must contain at least two elements")
+    }
+    return {
+      ...base,
+      type: "group",
+      children: value.children.map(parseElement),
+    }
+  }
+
   throw new Error("Unsupported canvas element type")
 }
 

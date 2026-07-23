@@ -2,12 +2,13 @@ import { Circle, FabricImage, Group, Line, Rect, Textbox, filters, loadSVGFromUR
 
 import { builtInArtworkById } from "../artwork"
 import type { DeviceMockup } from "../device-mockups"
-import { DEFAULT_TEXT_LINE_HEIGHT_RATIO, type Asset, type CanvasElement } from "../shared"
+import type { CanvasElementBounds } from "../group-elements"
+import { DEFAULT_TEXT_LINE_HEIGHT_RATIO, type Asset, type CanvasElement, type GroupElement } from "../shared"
 import { renderDeviceMockup } from "./device-mockup-renderer"
 
 export async function createFabricObject(
   element: CanvasElement,
-  asset: Asset | undefined,
+  assetLookup: Map<string, Asset>,
   mockupLookup: Map<string, DeviceMockup>,
 ): Promise<FabricObject> {
   if (element.type === "text") {
@@ -25,31 +26,47 @@ export async function createFabricObject(
     return new Rect({ lockScalingFlip: true })
   }
 
+  if (element.type === "group") {
+    const children = await Promise.all(element.children.map(async (child) => {
+      const object = await createFabricObject(child, assetLookup, mockupLookup)
+      applyCanvasElement(object, child, 1)
+      return object
+    }))
+    return withSourceKey(new Group(children, {
+      fill: "transparent",
+      lockScalingFlip: true,
+      objectCaching: false,
+      stroke: null,
+      strokeWidth: 0,
+    }), elementSourceKey(element, assetLookup))
+  }
+
+  const asset = assetForElement(element, assetLookup)
   try {
     if (element.type === "mockup") {
-      if (!asset) return withSourceKey(missingImagePlaceholder(), elementSourceKey(element))
+      if (!asset) return withSourceKey(missingImagePlaceholder(), elementSourceKey(element, assetLookup))
       const mockup = mockupLookup.get(element.mockupId)
-      if (!mockup) return withSourceKey(missingImagePlaceholder(), elementSourceKey(element, asset))
+      if (!mockup) return withSourceKey(missingImagePlaceholder(), elementSourceKey(element, assetLookup))
       const composite = await renderDeviceMockup(mockup, asset.url)
       return withSourceKey(new FabricImage(composite, {
         imageSmoothing: true,
         lockScalingFlip: true,
-      }), elementSourceKey(element, asset))
+      }), elementSourceKey(element, assetLookup))
     }
 
-    if (element.type !== "image") return withSourceKey(missingImagePlaceholder(), elementSourceKey(element))
+    if (element.type !== "image") return withSourceKey(missingImagePlaceholder(), elementSourceKey(element, assetLookup))
     const definition = element.source.kind === "builtin" ? builtInArtworkById(element.source.id) : undefined
     const sourceUrl = definition?.url ?? asset?.url
-    if (!sourceUrl) return withSourceKey(missingImagePlaceholder(), elementSourceKey(element, asset))
+    if (!sourceUrl) return withSourceKey(missingImagePlaceholder(), elementSourceKey(element, assetLookup))
 
     if (definition || asset?.name.toLowerCase().endsWith(".svg")) {
       const loaded = await loadSVGFromURL(sourceUrl)
       const objects = loaded.objects.filter((object): object is FabricObject => object !== null)
-      if (objects.length === 0) return withSourceKey(missingImagePlaceholder(), elementSourceKey(element, asset))
+      if (objects.length === 0) return withSourceKey(missingImagePlaceholder(), elementSourceKey(element, assetLookup))
       const graphic = util.groupSVGElements(objects, loaded.options)
       graphic.set({ lockScalingFlip: true })
       if (element.fill) applyGraphicColor(graphic, element.fill)
-      return withSourceKey(graphic, elementSourceKey(element, asset))
+      return withSourceKey(graphic, elementSourceKey(element, assetLookup))
     }
 
     const image = await FabricImage.fromURL(sourceUrl, { crossOrigin: "anonymous" }, {
@@ -60,21 +77,51 @@ export async function createFabricObject(
       image.filters = [new filters.BlendColor({ color: element.fill, mode: "tint", alpha: 1 })]
       image.applyFilters()
     }
-    return withSourceKey(image, elementSourceKey(element, asset))
+    return withSourceKey(image, elementSourceKey(element, assetLookup))
   } catch {
-    return withSourceKey(missingImagePlaceholder(), elementSourceKey(element, asset))
+    return withSourceKey(missingImagePlaceholder(), elementSourceKey(element, assetLookup))
   }
 }
 
-export function fabricObjectMatchesElement(object: FabricObject, element: CanvasElement, asset?: Asset): boolean {
+export function fabricObjectMatchesElement(
+  object: FabricObject,
+  element: CanvasElement,
+  assetLookup: Map<string, Asset>,
+): boolean {
   if (element.type === "text") return object instanceof Textbox
+  if (element.type === "group") return object instanceof Group && sourceKeyForObject(object) === elementSourceKey(element, assetLookup)
   if (element.type === "shape") {
     if (element.shape === "circle") return object instanceof Circle
     if (element.shape === "line") return object instanceof Line
     return object instanceof Rect && !(object instanceof FabricImage)
   }
   return (object instanceof FabricImage || object instanceof Group || object instanceof Rect)
-    && sourceKeyForObject(object) === elementSourceKey(element, asset)
+    && sourceKeyForObject(object) === elementSourceKey(element, assetLookup)
+}
+
+export async function renderedCanvasElementsBounds(
+  elements: CanvasElement[],
+  assetLookup: Map<string, Asset>,
+  mockupLookup: Map<string, DeviceMockup>,
+): Promise<CanvasElementBounds> {
+  const objects = await Promise.all(elements.map(async (element) => {
+    const object = await createFabricObject(element, assetLookup, mockupLookup)
+    applyCanvasElement(object, element, 1)
+    return object
+  }))
+  try {
+    return objects.reduce<CanvasElementBounds>((bounds, object) => {
+      const rectangle = object.getBoundingRect()
+      return {
+        bottom: Math.max(bounds.bottom, rectangle.top + rectangle.height),
+        left: Math.min(bounds.left, rectangle.left),
+        right: Math.max(bounds.right, rectangle.left + rectangle.width),
+        top: Math.min(bounds.top, rectangle.top),
+      }
+    }, { bottom: -Infinity, left: Infinity, right: -Infinity, top: Infinity })
+  } finally {
+    objects.forEach((object) => object.dispose())
+  }
 }
 
 export function sourceKeyForObject(object: FabricObject): string | undefined {
@@ -134,12 +181,37 @@ export function applyCanvasElement(object: FabricObject, element: CanvasElement,
       })
     }
   } else {
-    object.set({
-      scaleX: (element.width * scale) / Math.max(1, object.width),
-      scaleY: (element.height * scale) / Math.max(1, object.height),
-    })
+    const scaleX = (element.width * scale) / Math.max(1, object.width)
+    const scaleY = (element.height * scale) / Math.max(1, object.height)
+    object.set({ scaleX, scaleY })
+    if (element.type === "group" && object instanceof Group) applyGroupPaintScale(object, element, scaleX, scaleY)
   }
   object.setCoords()
+}
+
+function applyGroupPaintScale(object: Group, element: GroupElement, parentScaleX: number, parentScaleY: number): void {
+  object.getObjects().forEach((childObject, index) => {
+    const child = element.children[index]
+    if (!child) return
+    if (child.type === "shape") {
+      const center = childObject.getRelativeCenterPoint()
+      childObject.set({
+        strokeUniform: true,
+        strokeWidth: child.strokeWidth * (Math.abs(parentScaleX) + Math.abs(parentScaleY)) / 2,
+      })
+      childObject.setPositionByOrigin(center, "center", "center")
+      childObject.setCoords()
+    } else if (child.type === "group" && childObject instanceof Group) {
+      applyGroupPaintScale(
+        childObject,
+        child,
+        parentScaleX * Math.abs(childObject.scaleX),
+        parentScaleY * Math.abs(childObject.scaleY),
+      )
+    }
+    childObject.dirty = true
+  })
+  object.dirty = true
 }
 
 type SourcedFabricObject = FabricObject & { storeshotSourceKey?: string }
@@ -149,7 +221,12 @@ function withSourceKey<T extends FabricObject>(object: T, sourceKey: string): T 
   return object
 }
 
-function elementSourceKey(element: CanvasElement, asset?: Asset): string {
+function elementSourceKey(element: CanvasElement, assetLookup: Map<string, Asset>): string {
+  const asset = assetForElement(element, assetLookup)
+  if (element.type === "group") {
+    const childSources = element.children.map((child) => elementSourceKey(child, assetLookup))
+    return `group:${element.id}:${JSON.stringify(element.children)}:${JSON.stringify(childSources)}`
+  }
   if (element.type === "mockup") return `mockup:${element.mockupId}:${asset?.url ?? element.assetId}`
   if (element.type === "image") {
     return element.source.kind === "builtin"

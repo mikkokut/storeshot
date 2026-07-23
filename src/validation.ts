@@ -9,6 +9,7 @@ import {
   resolveMockupBundle,
   type DeviceMockupCatalog,
 } from "./device-mockups.js"
+import { flattenCanvasElements } from "./element-tree.js"
 import { resolvePackagePublicDirectory } from "./package-assets.js"
 import {
   ASSETS_DIRECTORY,
@@ -162,7 +163,7 @@ function validateSetSemantics(
     for (const area of set.areas) {
       if (ids.has(area.id)) issues.push(issue("error", "set.duplicateObjectId", setPath, `Duplicate area or element id: ${area.id}`))
       ids.add(area.id)
-      for (const element of area.elements) {
+      for (const element of flattenCanvasElements(area.elements)) {
         if (ids.has(element.id)) issues.push(issue("error", "set.duplicateObjectId", setPath, `Duplicate area or element id: ${element.id}`))
         ids.add(element.id)
         if (element.type === "mockup") {

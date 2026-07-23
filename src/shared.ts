@@ -90,7 +90,12 @@ export interface ShapeElement extends CanvasElementBase {
   cornerRadius: number
 }
 
-export type CanvasElement = DeviceMockupElement | ImageElement | ShapeElement | TextElement
+export interface GroupElement extends CanvasElementBase {
+  type: "group"
+  children: CanvasElement[]
+}
+
+export type CanvasElement = DeviceMockupElement | GroupElement | ImageElement | ShapeElement | TextElement
 
 export interface ScreenshotArea {
   id: string

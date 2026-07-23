@@ -2,8 +2,9 @@ import { StaticCanvas } from "fabric"
 
 import type { DeviceMockup } from "../device-mockups"
 import type { Asset, ScreenshotArea, TextElement } from "../shared"
+import { flattenCanvasElements } from "../element-tree"
 import { loadBunnyFont } from "./bunny-fonts"
-import { applyCanvasElement, assetForElement, createFabricObject } from "./fabric-elements"
+import { applyCanvasElement, createFabricObject } from "./fabric-elements"
 
 export async function renderScreenshotArea(
   area: ScreenshotArea,
@@ -20,12 +21,11 @@ export async function renderScreenshotArea(
   })
 
   try {
-    const textElements = area.elements.filter((element): element is TextElement => element.type === "text")
+    const textElements = flattenCanvasElements(area.elements).filter((element): element is TextElement => element.type === "text")
     await Promise.all(textElements.map((element) => loadBunnyFont(element.fontFamily, element.fontWeight)))
 
     for (const element of area.elements) {
-      const asset = assetForElement(element, assetLookup)
-      const object = await createFabricObject(element, asset, mockupLookup)
+      const object = await createFabricObject(element, assetLookup, mockupLookup)
       applyCanvasElement(object, element, 1)
       object.set({ evented: false, selectable: false })
       canvas.add(object)

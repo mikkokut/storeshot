@@ -31,8 +31,10 @@ database, hosted project, or remote backend.
 - Create ordered screenshot sets for a locale and Apple device family.
 - Arrange text, shapes, images, recolorable artwork, and device mockups on a
   free-form canvas.
-- Use undo/redo, copy/paste, alignment guides, layers, keyboard movement, and
-  canvas zoom.
+- Group and ungroup layers, with multi-selection on the canvas and in the layer
+  list.
+- Use undo/redo, multi-layer copy/paste and duplication, alignment guides,
+  layers, keyboard movement, and canvas zoom.
 - Export an entire set as full-resolution PNG files in a ZIP archive.
 - Inspect, validate, edit, and render projects from the CLI with stable JSON
   output for scripts and AI agents.

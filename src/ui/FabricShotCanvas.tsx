@@ -1,11 +1,12 @@
 import { useEffect, useLayoutEffect, useRef } from "react"
-import { Canvas as FabricCanvas, Line, Point, Rect, Textbox, type FabricObject } from "fabric"
+import { ActiveSelection, Canvas as FabricCanvas, Line, Point, Rect, Textbox, type FabricObject } from "fabric"
 
 import type { DeviceMockup } from "../device-mockups"
+import { flattenCanvasElements } from "../element-tree"
 import type { Asset, CanvasElement, ScreenshotArea, TextElement } from "../shared"
 import { loadBunnyFont } from "./bunny-fonts"
 import { calculateCenterSnap } from "./canvas-snapping"
-import { applyCanvasElement as applyElement, assetForElement, createFabricObject as createObject, fabricObjectMatchesElement as objectMatchesElement, sourceKeyForObject } from "./fabric-elements"
+import { applyCanvasElement as applyElement, createFabricObject as createObject, fabricObjectMatchesElement as objectMatchesElement, sourceKeyForObject } from "./fabric-elements"
 
 const CONTROL_COLOR = "#1683ff"
 const SHOT_DISPLAY_LONG_EDGE = 754
@@ -43,19 +44,20 @@ interface FabricShotCanvasProps {
   canvasSize: { width: number; height: number }
   continuousPreview: boolean
   selectedElementId: string | null
+  selectedElementIds: string[]
   zoom: number
   onActivate: () => void
-  onChange: (element: CanvasElement) => void
+  onChange: (elements: CanvasElement[]) => void
   onContextMenu: (elementId: string | null) => void
-  onSelect: (elementId: string | null) => void
+  onSelectMany: (elementIds: string[]) => void
 }
 
 interface CanvasCallbacks {
   active: boolean
   onActivate: () => void
-  onChange: (element: CanvasElement) => void
+  onChange: (elements: CanvasElement[]) => void
   onContextMenu: (elementId: string | null) => void
-  onSelect: (elementId: string | null) => void
+  onSelectMany: (elementIds: string[]) => void
 }
 
 export function FabricShotCanvas({
@@ -66,26 +68,30 @@ export function FabricShotCanvas({
   canvasSize,
   continuousPreview,
   selectedElementId,
+  selectedElementIds,
   zoom,
   onActivate,
   onChange,
   onContextMenu,
-  onSelect,
+  onSelectMany,
 }: FabricShotCanvasProps) {
   const canvasElement = useRef<HTMLCanvasElement>(null)
   const fabricCanvas = useRef<FabricCanvas | null>(null)
   const selectionGhost = useRef<SelectionGhost | null>(null)
   const selectionViewportState = useRef<{ key: string | null; viewport: SelectionViewport } | null>(null)
+  const syncingActiveSelection = useRef(false)
   const objectsById = useRef(new Map<string, FabricObject>())
   const idsByObject = useRef(new WeakMap<FabricObject, string>())
   const areaRef = useRef(area)
   const syncVersion = useRef(0)
-  const callbacks = useRef<CanvasCallbacks>({ active, onActivate, onChange, onContextMenu, onSelect })
+  const callbacks = useRef<CanvasCallbacks>({ active, onActivate, onChange, onContextMenu, onSelectMany })
   const naturalScale = SHOT_DISPLAY_LONG_EDGE / Math.max(canvasSize.width, canvasSize.height)
   const displayWidth = Math.max(1, Math.round(canvasSize.width * naturalScale * zoom))
   const scale = displayWidth / canvasSize.width
   const displayHeight = Math.round(canvasSize.height * scale)
-  const selectedElement = active ? area.elements.find((element) => element.id === selectedElementId) : undefined
+  const selectedElement = active && selectedElementIds.length === 1
+    ? area.elements.find((element) => element.id === selectedElementId)
+    : undefined
   const selectionViewportKey = isImageElement(selectedElement)
     ? `${area.id}:${selectedElement.id}:${displayWidth}x${displayHeight}`
     : null
@@ -110,7 +116,7 @@ export function FabricShotCanvas({
   const selectionViewport = selectionViewportState.current!.viewport
 
   areaRef.current = area
-  callbacks.current = { active, onActivate, onChange, onContextMenu, onSelect }
+  callbacks.current = { active, onActivate, onChange, onContextMenu, onSelectMany }
 
   useLayoutEffect(() => {
     const element = canvasElement.current
@@ -122,6 +128,7 @@ export function FabricShotCanvas({
       centeredRotation: true,
       preserveObjectStacking: true,
       selection: true,
+      selectionKey: "shiftKey",
       selectionBorderColor: CONTROL_COLOR,
       selectionColor: "rgba(22, 131, 255, 0.08)",
       selectionLineWidth: 1,
@@ -163,15 +170,45 @@ export function FabricShotCanvas({
       canvas.requestRenderAll()
     }
 
-    const selectTarget = (target?: FabricObject) => {
-      callbacks.current.onActivate()
-      callbacks.current.onSelect(target ? idsByObject.current.get(target) ?? null : null)
+    const selectTargets = (targets: FabricObject[]) => {
+      const ids = targets
+        .flatMap((target) => target instanceof ActiveSelection ? target.getObjects() : [target])
+        .flatMap((target) => {
+          const id = idsByObject.current.get(target)
+          return id ? [id] : []
+        })
+      if (ids.length > 0) {
+        callbacks.current.onActivate()
+        callbacks.current.onSelectMany(ids)
+      }
     }
 
-    const emitChange = (target: FabricObject) => {
+    const readChange = (target: FabricObject) => {
       const id = idsByObject.current.get(target)
       const elementValue = areaRef.current.elements.find((candidate) => candidate.id === id)
-      if (elementValue) callbacks.current.onChange(readElement(target, elementValue, scale))
+      return elementValue ? readElement(target, elementValue, scale) : null
+    }
+
+    const emitChanges = (target: FabricObject) => {
+      if (target instanceof ActiveSelection) {
+        const selectedObjects = target.getObjects()
+        queueMicrotask(() => {
+          if (fabricCanvas.current !== canvas) return
+          if (canvas.getActiveObject() === target) {
+            syncingActiveSelection.current = true
+            try {
+              canvas.discardActiveObject()
+            } finally {
+              syncingActiveSelection.current = false
+            }
+          }
+          const changes = selectedObjects.map(readChange).filter((element): element is CanvasElement => element !== null)
+          if (changes.length > 0) callbacks.current.onChange(changes)
+        })
+        return
+      }
+      const change = readChange(target)
+      if (change) callbacks.current.onChange([change])
     }
 
     const syncSelectionGhost = (target: FabricObject) => {
@@ -180,15 +217,24 @@ export function FabricShotCanvas({
       syncSelectionGhostTransform(ghost, target)
     }
 
-    canvas.on("mouse:down", ({ target }) => selectTarget(target))
+    canvas.on("mouse:down", () => callbacks.current.onActivate())
+    canvas.on("selection:created", () => {
+      if (!syncingActiveSelection.current) selectTargets(canvas.getActiveObjects())
+    })
+    canvas.on("selection:updated", () => {
+      if (!syncingActiveSelection.current) selectTargets(canvas.getActiveObjects())
+    })
     canvas.on("selection:cleared", () => {
       clearGuides()
+      if (!syncingActiveSelection.current) {
+        callbacks.current.onActivate()
+        callbacks.current.onSelectMany([])
+      }
     })
     canvas.on("contextmenu", ({ target }) => {
       const elementId = target ? idsByObject.current.get(target) ?? null : null
       if (target && elementId) {
         canvas.setActiveObject(target)
-        selectTarget(target)
         canvas.requestRenderAll()
       }
       callbacks.current.onContextMenu(elementId)
@@ -209,11 +255,11 @@ export function FabricShotCanvas({
     canvas.on("object:scaling", ({ target }) => syncSelectionGhost(target))
     canvas.on("object:modified", ({ target }) => {
       clearGuides()
-      emitChange(target)
+      emitChanges(target)
     })
     canvas.on("mouse:up", clearGuides)
-    canvas.on("text:changed", ({ target }) => emitChange(target))
-    canvas.on("text:editing:exited", ({ target }) => emitChange(target))
+    canvas.on("text:changed", ({ target }) => emitChanges(target))
+    canvas.on("text:editing:exited", ({ target }) => emitChanges(target))
 
     return () => {
       syncVersion.current += 1
@@ -248,8 +294,22 @@ export function FabricShotCanvas({
     if (!currentCanvas) return
     const canvas: FabricCanvas = currentCanvas
     const version = ++syncVersion.current
+    const updateActiveSelection = (update: () => void) => {
+      syncingActiveSelection.current = true
+      try {
+        update()
+      } finally {
+        syncingActiveSelection.current = false
+      }
+    }
 
     async function syncObjects() {
+      if (canvas.getActiveObject() instanceof ActiveSelection) {
+        updateActiveSelection(() => canvas.discardActiveObject())
+      }
+      const nestedTextElements = flattenCanvasElements(area.elements).filter((element): element is TextElement => element.type === "text")
+      await Promise.all(nestedTextElements.map((element) => loadBunnyFont(element.fontFamily, element.fontWeight).catch(() => undefined)))
+      if (version !== syncVersion.current || fabricCanvas.current !== canvas) return
       const wantedIds = new Set(area.elements.map((element) => element.id))
       for (const [id, object] of objectsById.current) {
         if (!wantedIds.has(id)) {
@@ -260,16 +320,14 @@ export function FabricShotCanvas({
 
       for (const element of area.elements) {
         let object = objectsById.current.get(element.id)
-        const asset = assetForElement(element, assetLookup)
-
-        if (object && !objectMatchesElement(object, element, asset)) {
+        if (object && !objectMatchesElement(object, element, assetLookup)) {
           canvas.remove(object)
           objectsById.current.delete(element.id)
           object = undefined
         }
 
         if (!object) {
-          object = await createObject(element, asset, mockupLookup)
+          object = await createObject(element, assetLookup, mockupLookup)
           if (version !== syncVersion.current || fabricCanvas.current !== canvas) return
           configureControls(object, element)
           objectsById.current.set(element.id, object)
@@ -281,19 +339,6 @@ export function FabricShotCanvas({
           applyElement(object, element, scale)
         }
         applyShotClip(object, selectionViewport.expanded, displayWidth, displayHeight)
-
-        if (element.type === "text" && object instanceof Textbox) {
-          const textObject = object
-          void loadBunnyFont(element.fontFamily, element.fontWeight)
-            .then(() => {
-              if (version !== syncVersion.current || fabricCanvas.current !== canvas) return
-              const currentElement = areaRef.current.elements.find((candidate) => candidate.id === element.id)
-              if (!currentElement || currentElement.type !== "text") return
-              applyElement(textObject, currentElement, scale)
-              canvas.requestRenderAll()
-            })
-            .catch(() => undefined)
-        }
       }
 
       if (version !== syncVersion.current || fabricCanvas.current !== canvas) return
@@ -301,11 +346,12 @@ export function FabricShotCanvas({
         const object = objectsById.current.get(element.id)
         if (object) canvas.moveObjectTo(object, index)
       })
-      if (active && selectedElementId) {
+      updateActiveSelection(() => syncActiveSelection(canvas, active ? selectedElementIds : [], objectsById.current))
+      if (active && selectedElementId && selectedElementIds.length === 1) {
         const selected = objectsById.current.get(selectedElementId)
         const selectedElement = area.elements.find((element) => element.id === selectedElementId)
         if (selected) {
-          canvas.setActiveObject(selected)
+          updateActiveSelection(() => canvas.setActiveObject(selected))
           if (selectionViewport.expanded && isImageElement(selectedElement)) {
             const sourceKey = sourceKeyForObject(selected) ?? selectedElement.type
             let ghostState = selectionGhost.current
@@ -337,7 +383,7 @@ export function FabricShotCanvas({
               syncSelectionGhostTransform(ghostState.object, selected)
             }
             canvas.moveObjectTo(ghostState.object, 0)
-            canvas.setActiveObject(selected)
+            updateActiveSelection(() => canvas.setActiveObject(selected))
           }
         }
       }
@@ -353,19 +399,7 @@ export function FabricShotCanvas({
     }
 
     void syncObjects()
-  }, [active, area, assetLookup, displayHeight, displayWidth, mockupLookup, scale, selectedElementId, selectionViewport.expanded])
-
-  useEffect(() => {
-    const canvas = fabricCanvas.current
-    if (!canvas) return
-    if (!active || !selectedElementId) {
-      canvas.discardActiveObject()
-    } else {
-      const selected = objectsById.current.get(selectedElementId)
-      if (selected && canvas.getActiveObject() !== selected) canvas.setActiveObject(selected)
-    }
-    canvas.requestRenderAll()
-  }, [active, selectedElementId, area.elements])
+  }, [active, area, assetLookup, displayHeight, displayWidth, mockupLookup, scale, selectedElementId, selectedElementIds, selectionViewport.expanded])
 
   return (
     <div
@@ -375,6 +409,39 @@ export function FabricShotCanvas({
       <canvas ref={canvasElement} aria-label={`${area.name} editable canvas`} />
     </div>
   )
+}
+
+function syncActiveSelection(canvas: FabricCanvas, selectedIds: string[], objectsById: Map<string, FabricObject>) {
+  const selectedObjects = selectedIds.flatMap((id) => {
+    const object = objectsById.get(id)
+    return object ? [object] : []
+  })
+  const currentObjects = canvas.getActiveObjects()
+  if (sameObjects(currentObjects, selectedObjects)) return
+
+  canvas.discardActiveObject()
+  if (selectedObjects.length === 1) {
+    canvas.setActiveObject(selectedObjects[0])
+  } else if (selectedObjects.length > 1) {
+    const selection = new ActiveSelection(selectedObjects, { canvas })
+    selection.set({
+      borderColor: CONTROL_COLOR,
+      borderScaleFactor: 1.25,
+      cornerColor: "#ffffff",
+      cornerSize: 10,
+      cornerStrokeColor: CONTROL_COLOR,
+      cornerStyle: "circle",
+      lockScalingFlip: true,
+      transparentCorners: false,
+    })
+    canvas.setActiveObject(selection)
+  }
+}
+
+function sameObjects(current: FabricObject[], selected: FabricObject[]): boolean {
+  if (current.length !== selected.length) return false
+  const currentSet = new Set(current)
+  return selected.every((object) => currentSet.has(object))
 }
 
 function getSelectionBounds(selectedElement: CanvasElement, scale: number): SelectionBounds {
@@ -530,10 +597,10 @@ function configureControls(object: FabricObject, element: CanvasElement) {
     padding: 0,
     transparentCorners: false,
   })
-  if (element.type === "mockup" || (element.type === "shape" && element.shape === "circle")) {
+  if (element.type === "group" || element.type === "mockup" || (element.type === "shape" && element.shape === "circle")) {
     object.setControlsVisibility({ ml: false, mr: false, mt: false, mb: false })
   }
-  if (element.type === "shape" && element.shape === "circle") object.set({ lockUniScaling: true })
+  if (element.type === "group" || (element.type === "shape" && element.shape === "circle")) object.set({ lockUniScaling: true })
 }
 
 function readElement(object: FabricObject, element: CanvasElement, scale: number): CanvasElement {

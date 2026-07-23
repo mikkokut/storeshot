@@ -7,6 +7,7 @@ import test from "node:test"
 import { DuplicateAssetError, ProjectStore } from "../src/project-store.js"
 import type { MockupBundleManifest } from "../src/device-mockups.js"
 import type { ShapeElement } from "../src/shared.js"
+import { groupCanvasElements } from "../src/group-elements.js"
 
 const png = (width: number, height: number) => {
   const contents = Buffer.alloc(24)
@@ -117,6 +118,21 @@ test("set writes preserve circle, line, and rectangle styles", async () => {
       strokeWidth: element.strokeWidth,
       cornerRadius: element.cornerRadius,
     })), shapes.map(({ shape, fill, stroke, strokeWidth, cornerRadius }) => ({ shape, fill, stroke, strokeWidth, cornerRadius })))
+  })
+})
+
+test("set writes preserve nested groups", async () => {
+  await withStore(async (store) => {
+    const created = await store.createSet({ name: "Grouped layers", locale: "en-US", device: "iPhone", width: 1290, height: 2796 })
+    const source = created.areas[0].elements[0]
+    const second = { ...structuredClone(source), id: "element-second", x: source.x + 100 }
+    created.areas[0].elements = [groupCanvasElements([source, second], () => "group")]
+
+    await store.writeSet(created.id, created)
+
+    const saved = (await store.listSets()).find((set) => set.id === created.id)
+    assert.equal(saved?.areas[0].elements[0].type, "group")
+    assert.deepEqual(saved?.areas[0].elements[0].type === "group" && saved.areas[0].elements[0].children.map((child) => child.id), [source.id, second.id])
   })
 })
 

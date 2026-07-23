@@ -17,6 +17,7 @@ import {
 } from "fabric/node"
 
 import { builtInArtworkById } from "./artwork.js"
+import { flattenCanvasElements } from "./element-tree.js"
 import {
   MOCKUP_BUNDLE_FILENAME,
   parseMockupBundleManifest,
@@ -28,7 +29,7 @@ import {
 import { resolvePackagePublicDirectory } from "./package-assets.js"
 import { registerScreenshotSetFonts } from "./node-fonts.js"
 import { ProjectStore } from "./project-store.js"
-import { DEFAULT_TEXT_LINE_HEIGHT_RATIO, type CanvasElement, type ScreenshotArea, type ScreenshotSet } from "./shared.js"
+import { DEFAULT_TEXT_LINE_HEIGHT_RATIO, type CanvasElement, type GroupElement, type ScreenshotArea, type ScreenshotSet } from "./shared.js"
 
 export interface RenderOptions {
   clean: boolean
@@ -137,6 +138,20 @@ async function createFabricObject(element: CanvasElement, resources: RenderResou
     if (element.shape === "line") return new Line([0, 0, 1, 1], { lockScalingFlip: true })
     return new Rect({ lockScalingFlip: true })
   }
+  if (element.type === "group") {
+    const children = await Promise.all(element.children.map(async (child) => {
+      const object = await createFabricObject(child, resources)
+      applyCanvasElement(object, child, 1)
+      return object
+    }))
+    return new Group(children, {
+      fill: "transparent",
+      lockScalingFlip: true,
+      objectCaching: false,
+      stroke: null,
+      strokeWidth: 0,
+    })
+  }
 
   if (element.type === "mockup") {
     const screenshot = resources.assetSources.get(element.assetId)
@@ -170,6 +185,8 @@ async function createFabricObject(element: CanvasElement, resources: RenderResou
 function applyCanvasElement(object: FabricObject, element: CanvasElement, scale: number): void {
   object.set({
     angle: element.rotation,
+    flipX: element.flipX ?? false,
+    flipY: element.flipY ?? false,
     left: element.x * scale,
     opacity: element.opacity,
     originX: "left",
@@ -210,12 +227,37 @@ function applyCanvasElement(object: FabricObject, element: CanvasElement, scale:
       })
     }
   } else {
-    object.set({
-      scaleX: (element.width * scale) / Math.max(1, object.width),
-      scaleY: (element.height * scale) / Math.max(1, object.height),
-    })
+    const scaleX = (element.width * scale) / Math.max(1, object.width)
+    const scaleY = (element.height * scale) / Math.max(1, object.height)
+    object.set({ scaleX, scaleY })
+    if (element.type === "group" && object instanceof Group) applyGroupPaintScale(object, element, scaleX, scaleY)
   }
   object.setCoords()
+}
+
+function applyGroupPaintScale(object: Group, element: GroupElement, parentScaleX: number, parentScaleY: number): void {
+  object.getObjects().forEach((childObject, index) => {
+    const child = element.children[index]
+    if (!child) return
+    if (child.type === "shape") {
+      const center = childObject.getRelativeCenterPoint()
+      childObject.set({
+        strokeUniform: true,
+        strokeWidth: child.strokeWidth * (Math.abs(parentScaleX) + Math.abs(parentScaleY)) / 2,
+      })
+      childObject.setPositionByOrigin(center, "center", "center")
+      childObject.setCoords()
+    } else if (child.type === "group" && childObject instanceof Group) {
+      applyGroupPaintScale(
+        childObject,
+        child,
+        parentScaleX * Math.abs(childObject.scaleX),
+        parentScaleY * Math.abs(childObject.scaleY),
+      )
+    }
+    childObject.dirty = true
+  })
+  object.dirty = true
 }
 
 async function loadRenderResources(store: ProjectStore, packageRoot: string, required: RequiredResources): Promise<RenderResources> {
@@ -341,7 +383,7 @@ function requiredResources(sets: ScreenshotSet[]): RequiredResources {
   const mockups = new Set<string>()
   for (const set of sets) {
     for (const area of set.areas) {
-      for (const element of area.elements) {
+      for (const element of flattenCanvasElements(area.elements)) {
         if (element.type === "mockup") {
           assets.add(element.assetId)
           mockups.add(element.mockupId)

@@ -16,6 +16,7 @@ import {
   Download,
   FlipHorizontal2,
   FlipVertical2,
+  Group as GroupIcon,
   Image as ImageIcon,
   ImagePlus,
   LoaderCircle,
@@ -28,6 +29,7 @@ import {
   Trash2,
   Type,
   Undo2,
+  Ungroup,
   X,
 } from "lucide-react"
 
@@ -63,12 +65,15 @@ import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { builtInArtworkById, type BuiltInArtworkDefinition } from "../artwork"
 import { deviceMockupById, type DeviceMockup, type DeviceMockupCatalog, type DevicePlatform } from "../device-mockups"
+import { flattenCanvasElements } from "../element-tree"
+import { groupCanvasElements, ungroupCanvasElement } from "../group-elements"
 import type {
   Asset,
   AssetCategory,
   CanvasElement,
   DeviceMockupElement,
   FontWeight,
+  GroupElement,
   ImageElement,
   ScreenshotArea,
   ScreenshotSet,
@@ -85,7 +90,8 @@ import { DeviceMockupPicker } from "./DeviceMockupPicker"
 import { exportScreenshotSet } from "./export-set"
 import { useMockupCatalog } from "./MockupCatalogContext"
 import { FONT_WEIGHTS, getBunnyFontCatalog, LOCAL_FONT_FAMILY, loadBunnyFont } from "./bunny-fonts"
-import { cloneCanvasElement, cloneScreenshotArea } from "../screenshot-area"
+import { renderedCanvasElementsBounds } from "./fabric-elements"
+import { cloneCanvasElements, cloneScreenshotArea, duplicateSelectedCanvasElements } from "../screenshot-area"
 
 interface SetEditorProps {
   assets: Record<AssetCategory, Asset[]>
@@ -104,6 +110,7 @@ interface EditorSnapshot {
   areas: ScreenshotArea[]
   selectedAreaId: string
   selectedElementId: string | null
+  selectedElementIds: string[]
 }
 
 interface EditorHistory {
@@ -113,9 +120,9 @@ interface EditorHistory {
 
 type EditorClipboard =
   | { kind: "area"; area: ScreenshotArea; pasteCount: number; token: string }
-  | { kind: "element"; element: CanvasElement; pasteCount: number; token: string }
+  | { kind: "elements"; elements: CanvasElement[]; pasteCount: number; primaryElementId: string; token: string }
 
-type CanvasElementChange = Partial<DeviceMockupElement> | Partial<ImageElement> | Partial<ShapeElement> | Partial<TextElement>
+type CanvasElementChange = Partial<DeviceMockupElement> | Partial<GroupElement> | Partial<ImageElement> | Partial<ShapeElement> | Partial<TextElement>
 
 const HISTORY_LIMIT = 100
 const NUDGE_DISTANCE = 1
@@ -123,6 +130,7 @@ const LARGE_NUDGE_DISTANCE = 10
 const MIN_CANVAS_ZOOM = 0.25
 const MAX_CANVAS_ZOOM = 2
 const CANVAS_ZOOM_STEP = 0.25
+const NO_SELECTED_ELEMENT_IDS: string[] = []
 const APP_CLIPBOARD_MIME = "application/x-storeshot"
 const ASSET_PICKER_FILTERS: Array<{ label: string; value: "all" | AssetCategory }> = [
   { label: "All assets", value: "all" },
@@ -137,6 +145,7 @@ export function SetEditor({ assets, set, onOpenAssets, onProjectChange, onSetCha
   const [workingSet, setWorkingSet] = useState(set)
   const [selectedAreaId, setSelectedAreaId] = useState(set.areas[0].id)
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null)
+  const [selectedElementIds, setSelectedElementIds] = useState<string[]>([])
   const [assetPickerOpen, setAssetPickerOpen] = useState(false)
   const [assetPickerFilter, setAssetPickerFilter] = useState<"all" | AssetCategory>("all")
   const [devicePickerOpen, setDevicePickerOpen] = useState(false)
@@ -155,6 +164,7 @@ export function SetEditor({ assets, set, onOpenAssets, onProjectChange, onSetCha
   const currentSet = useRef(set)
   const selectedAreaIdRef = useRef(selectedAreaId)
   const selectedElementIdRef = useRef(selectedElementId)
+  const selectedElementIdsRef = useRef(selectedElementIds)
   const history = useRef<EditorHistory>({ past: [], future: [] })
   const historyGroup = useRef<string | null>(null)
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -164,12 +174,14 @@ export function SetEditor({ assets, set, onOpenAssets, onProjectChange, onSetCha
 
   selectedAreaIdRef.current = selectedAreaId
   selectedElementIdRef.current = selectedElementId
+  selectedElementIdsRef.current = selectedElementIds
 
   useEffect(() => {
     currentSet.current = set
     setWorkingSet(set)
     setSelectedAreaId(set.areas[0].id)
     setSelectedElementId(null)
+    setSelectedElementIds([])
     setAssetPickerOpen(false)
     setDevicePickerOpen(false)
     setArtworkPickerOpen(false)
@@ -221,6 +233,7 @@ export function SetEditor({ assets, set, onOpenAssets, onProjectChange, onSetCha
   const documentColors = useMemo(() => colorsUsedInSet(workingSet), [workingSet])
   const selectedArea = workingSet.areas.find((area) => area.id === selectedAreaId) ?? workingSet.areas[0]
   const selectedElement = selectedArea.elements.find((element) => element.id === selectedElementId) ?? null
+  const selectedElements = selectedArea.elements.filter((element) => selectedElementIds.includes(element.id))
   const pendingMockup = deviceMockupById(mockupCatalog, pendingMockupId) ?? mockupCatalog.mockups[0]
   const pendingScreenshotGroups = partitionScreenshots(screenshotAssets, pendingMockup?.platform)
   const selectedElementIndex = selectedElement
@@ -233,6 +246,21 @@ export function SetEditor({ assets, set, onOpenAssets, onProjectChange, onSetCha
     : -1
   const canUndo = history.current.past.length > 0
   const canRedo = history.current.future.length > 0
+
+  useEffect(() => {
+    if (!selectedElementId) {
+      if (selectedElementIds.length > 0) setSelectedElementIds([])
+      return
+    }
+    if (!selectedArea.elements.some((element) => element.id === selectedElementId)) {
+      setSelectedElementId(null)
+      setSelectedElementIds([])
+      return
+    }
+    const validIds = selectedElementIds.filter((id) => selectedArea.elements.some((element) => element.id === id))
+    if (!validIds.includes(selectedElementId)) setSelectedElementIds([selectedElementId])
+    else if (validIds.length !== selectedElementIds.length) setSelectedElementIds(validIds)
+  }, [selectedArea.elements, selectedElementId, selectedElementIds])
 
   useEffect(() => {
     if (!screenshotAssets.some((asset) => asset.id === pendingMockupAssetId)) {
@@ -290,6 +318,12 @@ export function SetEditor({ assets, set, onOpenAssets, onProjectChange, onSetCha
         redo()
         return
       }
+      if (!isEditableTarget(event.target) && commandKey && !event.altKey && key === "g") {
+        event.preventDefault()
+        if (event.shiftKey) ungroupSelectedElement()
+        else void groupSelectedElements()
+        return
+      }
       if (!selectedElementId || isEditableTarget(event.target)) return
       if (event.key === "Backspace" || event.key === "Delete") {
         event.preventDefault()
@@ -310,7 +344,7 @@ export function SetEditor({ assets, set, onOpenAssets, onProjectChange, onSetCha
     }
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [selectedArea.id, selectedElementId, workingSet])
+  }, [selectedArea.id, selectedElementId, selectedElementIds, workingSet])
 
   useEffect(() => {
     function handleCopy(event: ClipboardEvent) {
@@ -361,6 +395,7 @@ export function SetEditor({ assets, set, onOpenAssets, onProjectChange, onSetCha
       areas: structuredClone(currentSet.current.areas),
       selectedAreaId: selectedAreaIdRef.current,
       selectedElementId: selectedElementIdRef.current,
+      selectedElementIds: [...selectedElementIdsRef.current],
     }
   }
 
@@ -382,9 +417,11 @@ export function SetEditor({ assets, set, onOpenAssets, onProjectChange, onSetCha
     const selectedElementId = selectedArea.elements.some((element) => element.id === snapshot.selectedElementId)
       ? snapshot.selectedElementId
       : null
+    const selectedElementIds = snapshot.selectedElementIds.filter((id) => selectedArea.elements.some((element) => element.id === id))
     setDraft(next, undefined, false)
     setSelectedAreaId(selectedArea.id)
     setSelectedElementId(selectedElementId)
+    setSelectedElementIds(selectedElementId && selectedElementIds.includes(selectedElementId) ? selectedElementIds : selectedElementId ? [selectedElementId] : [])
     setAssetPickerOpen(false)
     setDevicePickerOpen(false)
     setContextMenu(null)
@@ -416,37 +453,48 @@ export function SetEditor({ assets, set, onOpenAssets, onProjectChange, onSetCha
   function copySelection(): EditorClipboard {
     const area = currentSet.current.areas.find((candidate) => candidate.id === selectedAreaIdRef.current)
       ?? currentSet.current.areas[0]
-    const element = area.elements.find((candidate) => candidate.id === selectedElementIdRef.current)
-    editorClipboard = element
-      ? { kind: "element", element: structuredClone(element), pasteCount: 0, token: crypto.randomUUID() }
+    const selectedIds = new Set(selectedElementIdsRef.current)
+    if (selectedElementIdRef.current) selectedIds.add(selectedElementIdRef.current)
+    const elements = area.elements.filter((element) => selectedIds.has(element.id))
+    editorClipboard = elements.length > 0
+      ? {
+          kind: "elements",
+          elements: structuredClone(elements),
+          pasteCount: 0,
+          primaryElementId: selectedElementIdRef.current ?? elements.at(-1)!.id,
+          token: crypto.randomUUID(),
+        }
       : { kind: "area", area: structuredClone(area), pasteCount: 0, token: crypto.randomUUID() }
     return editorClipboard
   }
 
   function pasteSelection() {
-    if (!editorClipboard) return
+    const clipboard = editorClipboard
+    if (!clipboard) return
     const targetArea = currentSet.current.areas.find((area) => area.id === selectedAreaIdRef.current)
       ?? currentSet.current.areas[0]
-    editorClipboard.pasteCount += 1
+    clipboard.pasteCount += 1
 
-    if (editorClipboard.kind === "element") {
-      const source = editorClipboard.element
-      const offset = Math.round(currentSet.current.canvas.width * 0.025 * editorClipboard.pasteCount)
-      const copy: CanvasElement = {
-        ...cloneCanvasElement(source),
-        x: clamp(source.x + offset, 0, Math.max(0, currentSet.current.canvas.width - source.width)),
-        y: clamp(source.y + offset, 0, Math.max(0, currentSet.current.canvas.height - source.height)),
-      }
-      addElement(targetArea.id, copy)
+    if (clipboard.kind === "elements") {
+      const desiredOffset = Math.round(currentSet.current.canvas.width * 0.025 * clipboard.pasteCount)
+      const offset = clampedElementOffset(clipboard.elements, currentSet.current.canvas, desiredOffset)
+      const copies = cloneCanvasElements(clipboard.elements, { offsetX: offset.x, offsetY: offset.y })
+      const primaryIndex = clipboard.elements.findIndex((element) => element.id === clipboard.primaryElementId)
+      const primaryCopy = copies[primaryIndex] ?? copies.at(-1)
+      const next = updateArea(targetArea.id, (area) => ({ ...area, elements: [...area.elements, ...copies] }))
+      setSelectedAreaId(targetArea.id)
+      setSelectedElementIds(copies.map((element) => element.id))
+      setSelectedElementId(primaryCopy?.id ?? null)
+      void persist(next)
       return
     }
 
-    const source = editorClipboard.area
+    const source = clipboard.area
     const sourceIndex = currentSet.current.areas.findIndex((area) => area.id === targetArea.id)
     const copy = cloneScreenshotArea(source, {
-      name: editorClipboard.pasteCount === 1
+      name: clipboard.pasteCount === 1
         ? `${source.name} copy`
-        : `${source.name} copy ${editorClipboard.pasteCount}`,
+        : `${source.name} copy ${clipboard.pasteCount}`,
     })
     const areas = [...currentSet.current.areas]
     areas.splice(sourceIndex + 1, 0, copy)
@@ -454,6 +502,7 @@ export function SetEditor({ assets, set, onOpenAssets, onProjectChange, onSetCha
     setDraft(next)
     setSelectedAreaId(copy.id)
     setSelectedElementId(null)
+    setSelectedElementIds([])
     setAssetPickerOpen(false)
     setDevicePickerOpen(false)
     setContextMenu(null)
@@ -544,14 +593,15 @@ export function SetEditor({ assets, set, onOpenAssets, onProjectChange, onSetCha
 
   function nudgeSelectedElement(deltaX: number, deltaY: number) {
     const areaId = selectedAreaIdRef.current
-    const elementId = selectedElementIdRef.current
-    if (!elementId) return
-    updateElement(
-      areaId,
-      elementId,
-      (element) => ({ ...element, x: element.x + deltaX, y: element.y + deltaY }),
-      `keyboard:nudge:${areaId}:${elementId}`,
-    )
+    const elementIds = selectedElementIds.length > 0 ? selectedElementIds : [selectedElementIdRef.current].filter(Boolean) as string[]
+    if (elementIds.length === 0) return
+    const ids = new Set(elementIds)
+    updateArea(areaId, (area) => ({
+      ...area,
+      elements: area.elements.map((element) => ids.has(element.id)
+        ? { ...element, x: element.x + deltaX, y: element.y + deltaY }
+        : element),
+    }), `keyboard:nudge:${areaId}:${elementIds.join(":")}`)
     schedulePersist()
   }
 
@@ -593,10 +643,13 @@ export function SetEditor({ assets, set, onOpenAssets, onProjectChange, onSetCha
     }))
   }
 
-  function changeElementFromCanvas(areaId: string, element: CanvasElement) {
-    updateElement(areaId, element.id, () => element, `canvas:${areaId}:${element.id}`)
+  function changeElementsFromCanvas(areaId: string, elements: CanvasElement[]) {
+    const changesById = new Map(elements.map((element) => [element.id, element]))
+    updateArea(areaId, (area) => ({
+      ...area,
+      elements: area.elements.map((element) => changesById.get(element.id) ?? element),
+    }), `canvas:${areaId}:${elements.map((element) => element.id).join(":")}`)
     setSelectedAreaId(areaId)
-    setSelectedElementId(element.id)
     schedulePersist()
   }
 
@@ -803,28 +856,109 @@ export function SetEditor({ assets, set, onOpenAssets, onProjectChange, onSetCha
     addElement(selectedArea.id, element)
   }
 
+  function selectElement(elementId: string | null, additive = false) {
+    if (!elementId) {
+      setSelectedElementId(null)
+      setSelectedElementIds([])
+      return
+    }
+    if (!additive) {
+      setSelectedElementId(elementId)
+      setSelectedElementIds([elementId])
+      return
+    }
+    const next = selectedElementIds.includes(elementId)
+      ? selectedElementIds.filter((id) => id !== elementId)
+      : [...selectedElementIds, elementId]
+    setSelectedElementIds(next)
+    setSelectedElementId(next.at(-1) ?? null)
+  }
+
+  function selectElements(elementIds: string[]) {
+    const next = [...new Set(elementIds)]
+    setSelectedElementIds(next)
+    setSelectedElementId(next.at(-1) ?? null)
+  }
+
+  async function groupSelectedElements() {
+    if (selectedElements.length < 2) return
+    const elementsToGroup = selectedElements
+    const selectedIds = new Set(elementsToGroup.map((element) => element.id))
+    const areaId = selectedArea.id
+    const elementSnapshot = JSON.stringify(elementsToGroup)
+    const textElements = flattenCanvasElements(elementsToGroup).filter((element): element is TextElement => element.type === "text")
+    await Promise.all(textElements.map((element) => loadBunnyFont(element.fontFamily, element.fontWeight).catch(() => undefined)))
+    const renderedBounds = await renderedCanvasElementsBounds(elementsToGroup, assetLookup, mockupLookup)
+    const currentArea = currentSet.current.areas.find((area) => area.id === areaId)
+    const currentElements = currentArea?.elements.filter((element) => selectedIds.has(element.id)) ?? []
+    if (
+      !currentArea
+      || selectedAreaIdRef.current !== areaId
+      || currentElements.length !== selectedIds.size
+      || JSON.stringify(currentElements) !== elementSnapshot
+      || selectedElementIdsRef.current.length !== selectedIds.size
+      || selectedElementIdsRef.current.some((id) => !selectedIds.has(id))
+    ) return
+    const selectedIndices = currentArea.elements.flatMap((element, index) => selectedIds.has(element.id) ? [index] : [])
+    const topmostIndex = Math.max(...selectedIndices)
+    const group = groupCanvasElements(elementsToGroup, undefined, renderedBounds)
+    const next = updateArea(areaId, (area) => {
+      const elements = area.elements.filter((element) => !selectedIds.has(element.id))
+      const insertionIndex = area.elements.slice(0, topmostIndex + 1).filter((element) => !selectedIds.has(element.id)).length
+      elements.splice(insertionIndex, 0, group)
+      return { ...area, elements }
+    })
+    setSelectedElementIds([group.id])
+    setSelectedElementId(group.id)
+    void persist(next)
+  }
+
+  function ungroupSelectedElement() {
+    if (!selectedElement || selectedElement.type !== "group") return
+    const children = ungroupCanvasElement(selectedElement)
+    const next = updateArea(selectedArea.id, (area) => {
+      const index = area.elements.findIndex((element) => element.id === selectedElement.id)
+      const elements = [...area.elements]
+      elements.splice(index, 1, ...children)
+      return { ...area, elements }
+    })
+    const childIds = children.map((child) => child.id)
+    setSelectedElementIds(childIds)
+    setSelectedElementId(childIds.at(-1) ?? null)
+    void persist(next)
+  }
+
   function deleteElement() {
-    if (!selectedElementId) return
+    const selectedIds = new Set(selectedElementIds.length > 0 ? selectedElementIds : selectedElementId ? [selectedElementId] : [])
+    if (selectedIds.size === 0) return
     const next = updateArea(selectedArea.id, (area) => ({
       ...area,
-      elements: area.elements.filter((element) => element.id !== selectedElementId),
+      elements: area.elements.filter((element) => !selectedIds.has(element.id)),
     }))
     setSelectedElementId(null)
+    setSelectedElementIds([])
     void persist(next)
   }
 
   function duplicateElement() {
-    if (!selectedElement) return
-    const copy = cloneCanvasElement(selectedElement, {
-      offsetX: Math.round(workingSet.canvas.width * 0.025),
-      offsetY: Math.round(workingSet.canvas.width * 0.025),
-    })
+    const selectedIds = selectedElementIds.length > 0
+      ? selectedElementIds
+      : selectedElement ? [selectedElement.id] : []
+    if (selectedIds.length === 0) return
+    let copies: CanvasElement[] = []
     const next = updateArea(selectedArea.id, (area) => {
-      const elements = [...area.elements]
-      elements.splice(selectedElementIndex + 1, 0, copy)
-      return { ...area, elements }
+      const result = duplicateSelectedCanvasElements(area.elements, selectedIds, {
+        offsetX: Math.round(workingSet.canvas.width * 0.025),
+        offsetY: Math.round(workingSet.canvas.width * 0.025),
+      })
+      copies = result.copies
+      return { ...area, elements: result.elements }
     })
-    setSelectedElementId(copy.id)
+    const primaryIndex = selectedArea.elements
+      .filter((element) => selectedIds.includes(element.id))
+      .findIndex((element) => element.id === selectedElementId)
+    setSelectedElementIds(copies.map((element) => element.id))
+    setSelectedElementId(copies[primaryIndex]?.id ?? copies.at(-1)?.id ?? null)
     void persist(next)
   }
 
@@ -1164,20 +1298,21 @@ export function SetEditor({ assets, set, onOpenAssets, onProjectChange, onSetCha
                             continuousPreview={continuousPreview}
                             zoom={canvasZoom}
                             selectedElementId={active ? selectedElementId : null}
+                            selectedElementIds={active ? selectedElementIds : NO_SELECTED_ELEMENT_IDS}
                             onActivate={() => setSelectedAreaId(area.id)}
-                            onChange={(element) => changeElementFromCanvas(area.id, element)}
+                            onChange={(elements) => changeElementsFromCanvas(area.id, elements)}
                             onContextMenu={(elementId) => {
                               if (!elementId) {
                                 setContextMenu(null)
                                 return
                               }
                               setSelectedAreaId(area.id)
-                              setSelectedElementId(elementId)
+                              selectElement(elementId)
                               setContextMenu({ areaId: area.id, elementId })
                             }}
-                            onSelect={(elementId) => {
+                            onSelectMany={(elementIds) => {
                               setSelectedAreaId(area.id)
-                              setSelectedElementId(elementId)
+                              selectElements(elementIds)
                             }}
                           />
                         </ContextMenuTrigger>
@@ -1257,7 +1392,12 @@ export function SetEditor({ assets, set, onOpenAssets, onProjectChange, onSetCha
           <section className="flex h-full min-h-0 flex-col">
             <div className="flex shrink-0 items-center justify-between px-4 pb-2 pt-4">
               <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Layers</h2>
-              <span className="text-[11px] tabular-nums text-muted-foreground">{selectedArea.elements.length}</span>
+              <div className="flex items-center gap-1">
+                <Button aria-label="Group selected layers" disabled={selectedElementIds.length < 2} size="icon-xs" title="Group selected layers (Command/Ctrl G)" type="button" variant="ghost" onClick={groupSelectedElements}>
+                  <GroupIcon className="size-3.5" />
+                </Button>
+                <span className="text-[11px] tabular-nums text-muted-foreground">{selectedArea.elements.length}</span>
+              </div>
             </div>
             <ScrollArea className="min-h-0 flex-1">
               <div className="px-2 pb-3 pt-1">
@@ -1267,13 +1407,13 @@ export function SetEditor({ assets, set, onOpenAssets, onProjectChange, onSetCha
                   <div className="space-y-0.5">
                     {[...selectedArea.elements].reverse().map((element) => (
                       <Button
-                        aria-pressed={element.id === selectedElementId}
+                        aria-pressed={selectedElementIds.includes(element.id)}
                         className="w-full justify-start px-2 text-xs"
                         key={element.id}
                         size="default"
                         type="button"
-                        variant={element.id === selectedElementId ? "secondary" : "ghost"}
-                        onClick={() => setSelectedElementId(element.id)}
+                        variant={selectedElementIds.includes(element.id) ? "secondary" : "ghost"}
+                        onClick={(event) => selectElement(element.id, event.metaKey || event.ctrlKey || event.shiftKey)}
                       >
                         <LayerIcon element={element} />
                         <span className="min-w-0 flex-1 truncate text-left">{elementLabel(element, assetLookup, mockupCatalog)}</span>
@@ -1291,10 +1431,23 @@ export function SetEditor({ assets, set, onOpenAssets, onProjectChange, onSetCha
           <ResizablePanel id="inspector-panel" minSize={180}>
           <ScrollArea className="h-full min-h-0">
             <div>
-              {selectedElement ? (
+              {selectedElementIds.length > 1 ? (
+                <InspectorSection title={`${selectedElementIds.length} layers selected`}>
+                  <Button className="w-full" type="button" variant="outline" onClick={duplicateElement}>
+                    <Copy />
+                    Duplicate layers
+                  </Button>
+                  <Button className="w-full" type="button" onClick={groupSelectedElements}>
+                    <GroupIcon />
+                    Group layers
+                  </Button>
+                  <p className="text-xs text-muted-foreground">Move layers together by grouping them. Hold Command/Ctrl or Shift while selecting layers.</p>
+                </InspectorSection>
+              ) : selectedElement ? (
                 <InspectorSection key={selectedElement.id} title={elementTitle(selectedElement)}>
                   <div className="flex items-center rounded-lg border bg-muted/20 p-1">
                     <InspectorAction label="Duplicate layer" onClick={duplicateElement}><Copy className="size-4" /></InspectorAction>
+                    {selectedElement.type === "group" && <InspectorAction label="Ungroup layers" onClick={ungroupSelectedElement}><Ungroup className="size-4" /></InspectorAction>}
                     <InspectorAction label="Send backward" disabled={selectedElementIndex === 0} onClick={() => moveElementLayer(-1)}><ArrowDown className="size-4" /></InspectorAction>
                     <InspectorAction label="Bring forward" disabled={selectedElementIndex === selectedArea.elements.length - 1} onClick={() => moveElementLayer(1)}><ArrowUp className="size-4" /></InspectorAction>
                     <InspectorAction label="Flip horizontally" onClick={() => { updateSelectedElement({ flipX: !selectedElement.flipX }); void persist() }}><FlipHorizontal2 className="size-4" /></InspectorAction>
@@ -1856,6 +2009,8 @@ function GeometryInspector({ element, update, persist }: {
   function updateWidth(width: number) {
     update(mockup
       ? { width, height: Math.max(1, Math.round(width * mockup.height / mockup.width)) }
+      : element.type === "group"
+        ? { width, height: Math.max(1, Math.round(width * element.height / element.width)) }
       : element.type === "shape" && element.shape === "circle"
         ? { width, height: width }
         : { width })
@@ -1864,6 +2019,8 @@ function GeometryInspector({ element, update, persist }: {
   function updateHeight(height: number) {
     update(mockup
       ? { width: Math.max(1, Math.round(height * mockup.width / mockup.height)), height }
+      : element.type === "group"
+        ? { width: Math.max(1, Math.round(height * element.width / element.height)), height }
       : element.type === "shape" && element.shape === "circle"
         ? { width: height, height }
         : { height })
@@ -1983,7 +2140,7 @@ function colorsUsedInSet(set: ScreenshotSet): string[] {
   const colors: string[] = []
   for (const area of set.areas) {
     colors.push(area.background)
-    for (const element of area.elements) {
+    for (const element of flattenCanvasElements(area.elements)) {
       if (element.type === "text") colors.push(element.color)
       if (element.type === "shape") colors.push(element.fill, element.stroke)
       if (element.type === "image" && element.fill) colors.push(element.fill)
@@ -2112,6 +2269,7 @@ function LayerIcon({ element }: { element: CanvasElement }) {
   if (element.type === "text") return <Type className="size-3.5 text-muted-foreground" />
   if (element.type === "image") return <ImageIcon className="size-3.5 text-muted-foreground" />
   if (element.type === "mockup") return <Smartphone className="size-3.5 text-muted-foreground" />
+  if (element.type === "group") return <GroupIcon className="size-3.5 text-muted-foreground" />
   if (element.shape === "circle") return <CircleIcon className="size-3.5 text-muted-foreground" />
   if (element.shape === "line") return <Minus className="size-3.5 text-muted-foreground" />
   return <Square className="size-3.5 text-muted-foreground" />
@@ -2125,6 +2283,7 @@ function elementLabel(element: CanvasElement, assets: Map<string, Asset>, catalo
       : assets.get(element.source.assetId)?.name ?? "Image"
   }
   if (element.type === "mockup") return deviceMockupById(catalog, element.mockupId)?.name ?? "Device mockup"
+  if (element.type === "group") return `Group · ${element.children.length} layers`
   return shapeLabel(element.shape)
 }
 
@@ -2132,6 +2291,7 @@ function elementTitle(element: CanvasElement): string {
   if (element.type === "text") return "Text layer"
   if (element.type === "image") return "Image layer"
   if (element.type === "mockup") return "Device mockup"
+  if (element.type === "group") return "Group layer"
   return `${shapeLabel(element.shape)} layer`
 }
 
@@ -2171,10 +2331,32 @@ function clampCanvasZoom(zoom: number): number {
 
 function clipboardLabel(clipboard: EditorClipboard): string {
   if (clipboard.kind === "area") return clipboard.area.name
-  if (clipboard.element.type === "text") return clipboard.element.text
-  if (clipboard.element.type === "image") return "StoreShot image layer"
-  if (clipboard.element.type === "mockup") return "StoreShot device mockup layer"
-  return `StoreShot ${clipboard.element.shape} layer`
+  if (clipboard.elements.length > 1) return `StoreShot ${clipboard.elements.length} layers`
+  const element = clipboard.elements[0]
+  if (element.type === "text") return element.text
+  if (element.type === "image") return "StoreShot image layer"
+  if (element.type === "mockup") return "StoreShot device mockup layer"
+  if (element.type === "group") return "StoreShot group layer"
+  return `StoreShot ${element.shape} layer`
+}
+
+function clampedElementOffset(
+  elements: CanvasElement[],
+  canvas: { height: number; width: number },
+  desiredOffset: number,
+): { x: number; y: number } {
+  const left = Math.min(...elements.map((element) => element.x))
+  const top = Math.min(...elements.map((element) => element.y))
+  const right = Math.max(...elements.map((element) => element.x + element.width))
+  const bottom = Math.max(...elements.map((element) => element.y + element.height))
+  return {
+    x: clampSharedOffset(desiredOffset, -left, canvas.width - right),
+    y: clampSharedOffset(desiredOffset, -top, canvas.height - bottom),
+  }
+}
+
+function clampSharedOffset(value: number, min: number, max: number): number {
+  return min <= max ? clamp(value, min, max) : value
 }
 
 function shapeLabel(shape: ShapeElement["shape"]): string {
