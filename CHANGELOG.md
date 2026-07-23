@@ -4,6 +4,20 @@ All notable changes to StoreShot will be documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versioning
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0](https://github.com/mikkokut/storeshot/compare/v0.2.0...v0.3.0) (2026-07-23)
+
+
+### Features
+
+* **editor:** add configurable circles and lines ([c011120](https://github.com/mikkokut/storeshot/commit/c01112005c463ef034f21cf6f0931a2a34e963d8))
+* **editor:** add layer grouping and multi-selection ([1d66052](https://github.com/mikkokut/storeshot/commit/1d660529c5e9563b4b1fc62256c8702506c97634))
+* **website:** add StoreShot landing page ([e269dce](https://github.com/mikkokut/storeshot/commit/e269dce913f641e793be74e5342c533102bb6b66))
+
+
+### Bug Fixes
+
+* **editor:** show complete mockups during bundle import ([18894fd](https://github.com/mikkokut/storeshot/commit/18894fdc08f8b54c003807142d8ec494c286729c))
+
 ## [0.2.0](https://github.com/mikkokut/storeshot/compare/v0.1.0...v0.2.0) (2026-07-16)
 
 
