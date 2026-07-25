@@ -4,6 +4,7 @@ import type { DeviceMockup } from "../device-mockups"
 import type { Asset, ScreenshotArea, TextElement } from "../shared"
 import { flattenCanvasElements } from "../element-tree"
 import { loadBunnyFont } from "./bunny-fonts"
+import { createExportCanvasOptions } from "./export-canvas"
 import { applyCanvasElement, createFabricObject } from "./fabric-elements"
 
 export async function renderScreenshotArea(
@@ -13,12 +14,7 @@ export async function renderScreenshotArea(
   canvasSize: { width: number; height: number },
 ): Promise<Blob> {
   const canvasElement = document.createElement("canvas")
-  const canvas = new StaticCanvas(canvasElement, {
-    width: canvasSize.width,
-    height: canvasSize.height,
-    backgroundColor: area.background,
-    renderOnAddRemove: false,
-  })
+  const canvas = new StaticCanvas(canvasElement, createExportCanvasOptions(canvasSize, area.background))
 
   try {
     const textElements = flattenCanvasElements(area.elements).filter((element): element is TextElement => element.type === "text")
