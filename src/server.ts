@@ -1,3 +1,5 @@
+import { readinessIssues, ASSET_SPECS } from "./app-store.js"
+import type { CreatePageInput, LocalizePageInput } from "./shared.js"
 import { createReadStream, watch, type FSWatcher } from "node:fs"
 import { readFile, stat } from "node:fs/promises"
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
@@ -6,8 +8,9 @@ import path from "node:path"
 
 import type { ViteDevServer } from "vite"
 
+import { serveArtboardResource } from "./artboard-files.js"
 import { DuplicateAssetError, ProjectStore } from "./project-store.js"
-import type { StoreShotConfig, AssetCategory, CreateSetInput, ScreenshotSet, UpdateAssetMetadataInput, UpdateSetMetadataInput } from "./shared.js"
+import type { AssetCategory, CreateSetInput, ScreenshotSet, UpdateAssetMetadataInput, UpdateSetMetadataInput } from "./shared.js"
 
 const MAX_REQUEST_BYTES = 25 * 1024 * 1024
 
@@ -22,6 +25,7 @@ interface StartServerOptions {
 export async function startServer(options: StartServerOptions) {
   const store = new ProjectStore(options.projectDirectory)
   await store.initialize()
+  await store.readConfig()
   const projectEvents = new ProjectEventHub(store.root)
 
   let vite: ViteDevServer | undefined
@@ -37,6 +41,8 @@ export async function startServer(options: StartServerOptions) {
   const server = createServer(async (request, response) => {
     try {
       if ((request.url ?? "").startsWith("/api/")) assertAllowedBrowserRequest(request, options.host)
+      if ((request.url ?? "").startsWith("/artboards/")) assertAllowedBrowserRequest(request, options.host, true)
+      if (await serveArtboardResource(request, response, store.root)) return
       if (await handleApiRequest(request, response, store, projectEvents)) return
       if (vite) {
         vite.middlewares(request, response)
@@ -77,12 +83,61 @@ async function handleApiRequest(
 ): Promise<boolean> {
   const url = new URL(request.url ?? "/", "http://localhost")
 
+  const pngMatch = url.pathname.match(/^\/api\/sets\/([^/]+)\/areas\/([^/]+)\/png$/)
+  if (request.method === "POST" && pngMatch) {
+    const set = await store.readSet(decodeURIComponent(pngMatch[1]))
+    const area = set.areas.find((area) => area.id === decodeURIComponent(pngMatch[2]))
+    if (!area) throw new HttpError(404, "Artboard not found")
+    const { createBrowserRenderer } = await import("./node-renderer.js")
+    const renderer = await createBrowserRenderer(store)
+    try {
+      const png = await renderer.render(set, area)
+      response.writeHead(200, { "Content-Type": "image/png", "Content-Length": png.length }).end(png)
+    } finally { await renderer.close() }
+    return true
+  }
+  const newAreaMatch = url.pathname.match(/^\/api\/sets\/([^/]+)\/areas$/)
+  if (request.method === "POST" && newAreaMatch) {
+    const id = decodeURIComponent(newAreaMatch[1])
+    const area = await readJsonBody(request)
+    sendJson(response, 200, await store.addArea(id, area))
+    return true
+  }
+
   if (request.method === "GET" && url.pathname === "/api/events") {
     projectEvents.subscribe(request, response)
     return true
   }
 
   if (request.method === "GET" && url.pathname === "/api/project") {
+    sendJson(response, 200, await store.readProject())
+    return true
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/app-store") {
+    const project = await store.readProject()
+    sendJson(response, 200, { specifications: ASSET_SPECS, issues: readinessIssues(project.config, project.sets) })
+    return true
+  }
+  if (request.method === "POST" && url.pathname === "/api/pages") {
+    const page = await store.createPage(await readJsonBody(request) as CreatePageInput)
+    sendJson(response, 201, { page, project: await store.readProject() })
+    return true
+  }
+  const pageMatch = url.pathname.match(/^\/api\/pages\/([^/]+)$/)
+  if (pageMatch && (request.method === "PATCH" || request.method === "DELETE")) {
+    const pageId = decodeURIComponent(pageMatch[1])
+    if (request.method === "DELETE") await store.deletePage(pageId)
+    else await store.renamePage(pageId, (await readJsonBody(request) as { name: string }).name)
+    sendJson(response, 200, await store.readProject())
+    return true
+  }
+  const pageAction = url.pathname.match(/^\/api\/pages\/([^/]+)\/(localizations|prepare)$/)
+  if (request.method === "POST" && pageAction) {
+    const pageId = decodeURIComponent(pageAction[1])
+    const input = await readJsonBody(request) as LocalizePageInput
+    if (pageAction[2] === "localizations") await store.localizePage(pageId, input)
+    else await store.preparePage(pageId, input.locale)
     sendJson(response, 200, await store.readProject())
     return true
   }
@@ -148,12 +203,6 @@ async function handleApiRequest(
       createReadStream(target).pipe(response)
       return true
     }
-  }
-
-  if (request.method === "PATCH" && url.pathname === "/api/config") {
-    const config = await store.writeConfig((await readJsonBody(request)) as StoreShotConfig)
-    sendJson(response, 200, config)
-    return true
   }
 
   if (request.method === "POST" && url.pathname === "/api/assets") {
@@ -298,7 +347,7 @@ class HttpError extends Error {
   }
 }
 
-function assertAllowedBrowserRequest(request: IncomingMessage, configuredHost: string): void {
+function assertAllowedBrowserRequest(request: IncomingMessage, configuredHost: string, artboardResource = false): void {
   const host = request.headers.host
   if (!host) throw new HttpError(400, "A Host header is required")
 
@@ -315,6 +364,7 @@ function assertAllowedBrowserRequest(request: IncomingMessage, configuredHost: s
 
   const origin = request.headers.origin
   if (!origin) return
+  if (artboardResource && origin === "null" && ["image", "font", "style"].includes(String(request.headers["sec-fetch-dest"]))) return
   let originUrl: URL
   try {
     originUrl = new URL(origin)

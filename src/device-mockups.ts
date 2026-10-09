@@ -245,9 +245,6 @@ export function mergeDeviceMockupCatalogs(...catalogs: DeviceMockupCatalog[]): D
   return result
 }
 
-export function deviceMockupById(catalog: DeviceMockupCatalog, id: string): DeviceMockup | undefined {
-  return catalog.mockups.find((mockup) => mockup.id === id)
-}
 
 export function bundleAssetPaths(manifest: MockupBundleManifest): string[] {
   const paths = new Set<string>()

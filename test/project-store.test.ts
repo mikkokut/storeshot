@@ -6,8 +6,6 @@ import test from "node:test"
 
 import { DuplicateAssetError, ProjectStore } from "../src/project-store.js"
 import type { MockupBundleManifest } from "../src/device-mockups.js"
-import type { ShapeElement } from "../src/shared.js"
-import { groupCanvasElements } from "../src/group-elements.js"
 
 const png = (width: number, height: number) => {
   const contents = Buffer.alloc(24)
@@ -33,7 +31,7 @@ test("ProjectStore initializes a local project and detects screenshot dimensions
     await store.addAsset("screenshots", "phone.png", png(1290, 2796))
     const project = await store.readProject()
 
-    assert.equal(project.config.appName, path.basename(store.root))
+    assert.deepEqual(project.config.pages[0].localizations, [])
     assert.equal(project.assets.screenshots[0]?.name, "phone.png")
     assert.equal(project.assets.screenshots[0]?.width, 1290)
     assert.equal(project.assets.screenshots[0]?.height, 2796)
@@ -60,7 +58,7 @@ test("set writes and metadata updates are serialized without losing canvas chang
   await withStore(async (store) => {
     const created = await store.createSet({ name: "English iPhone", locale: "en-US", device: "iPhone", width: 1290, height: 2796 })
     const canvasUpdate = structuredClone(created)
-    canvasUpdate.areas[0].background = "#112233"
+    canvasUpdate.areas[0].html = "<!doctype html><body style=\"background:#112233\">Updated</body>"
 
     await Promise.all([
       store.writeSet(created.id, canvasUpdate),
@@ -70,80 +68,39 @@ test("set writes and metadata updates are serialized without losing canvas chang
     const saved = (await store.listSets()).find((set) => set.id === created.id)
     assert.equal(saved?.name, "Finnish iPhone")
     assert.equal(saved?.locale, "fi")
-    assert.equal(saved?.areas[0].background, "#112233")
+    assert.equal(saved?.areas[0].html, canvasUpdate.areas[0].html)
   })
 })
 
-test("set writes preserve horizontal and vertical layer flips", async () => {
+test("artboard HTML is canonical on disk and survives metadata changes", async () => {
   await withStore(async (store) => {
-    const created = await store.createSet({ name: "Flipped layers", locale: "en-US", device: "iPhone", width: 1290, height: 2796 })
-    created.areas[0].elements[0].flipX = true
-    created.areas[0].elements[0].flipY = true
-
-    await store.writeSet(created.id, created)
-
-    const saved = (await store.listSets()).find((set) => set.id === created.id)
-    assert.equal(saved?.areas[0].elements[0].flipX, true)
-    assert.equal(saved?.areas[0].elements[0].flipY, true)
+    const set = await store.createSet({ name: "HTML", locale: "en-US", device: "iPhone", width: 400, height: 800 })
+    const filename = path.join(store.setsPath, set.id, `${set.areas[0].id}.html`)
+    const html = '<!doctype html><style>body{display:grid;background:red}</style><body>Hello</body>'
+    await writeFile(filename, html)
+    const updated = await store.updateSetMetadata(set.id, { name: "Renamed", locale: "fi", device: "iPhone" })
+    assert.equal(updated.areas[0].html, html)
+    const manifest = JSON.parse(await readFile(path.join(store.setsPath, `${set.id}.json`), "utf8"))
+    assert.equal(manifest.version, 3)
+    assert.equal(manifest.areas[0].html, undefined)
+    assert.equal(manifest.areas[0].file, `${set.id}/${set.areas[0].id}.html`)
+    await assert.rejects(store.writeSet(set.id, { ...set, areas: [{ ...set.areas[0], id: "../escape" }] }), /area id/)
+    await assert.rejects(store.writeSet(set.id, { ...set, areas: [set.areas[0], set.areas[0]] }), /duplicate/)
+    await rm(filename)
+    await symlink(store.configPath, filename)
+    await assert.rejects(store.readSet(set.id), /regular files/)
   })
 })
 
-test("set writes preserve circle, line, and rectangle styles", async () => {
-  await withStore(async (store) => {
-    const created = await store.createSet({ name: "Styled shapes", locale: "en-US", device: "iPhone", width: 1290, height: 2796 })
-    const shapes: ShapeElement[] = (["circle", "line", "rectangle"] as const).map((shape, index) => ({
-      id: `element-${shape}`,
-      type: "shape",
-      shape,
-      x: 100,
-      y: 200 + index * 100,
-      width: 300,
-      height: shape === "circle" ? 300 : 100,
-      rotation: 0,
-      opacity: 1,
-      fill: "#112233",
-      stroke: "#abcdef",
-      strokeWidth: 12,
-      cornerRadius: shape === "rectangle" ? 24 : 0,
-    }))
-    created.areas[0].elements.push(...shapes)
-
-    await store.writeSet(created.id, created)
-
-    const saved = (await store.listSets()).find((set) => set.id === created.id)
-    assert.deepEqual(saved?.areas[0].elements.slice(-3).map((element) => element.type === "shape" && ({
-      shape: element.shape,
-      fill: element.fill,
-      stroke: element.stroke,
-      strokeWidth: element.strokeWidth,
-      cornerRadius: element.cornerRadius,
-    })), shapes.map(({ shape, fill, stroke, strokeWidth, cornerRadius }) => ({ shape, fill, stroke, strokeWidth, cornerRadius })))
-  })
-})
-
-test("set writes preserve nested groups", async () => {
-  await withStore(async (store) => {
-    const created = await store.createSet({ name: "Grouped layers", locale: "en-US", device: "iPhone", width: 1290, height: 2796 })
-    const source = created.areas[0].elements[0]
-    const second = { ...structuredClone(source), id: "element-second", x: source.x + 100 }
-    created.areas[0].elements = [groupCanvasElements([source, second], () => "group")]
-
-    await store.writeSet(created.id, created)
-
-    const saved = (await store.listSets()).find((set) => set.id === created.id)
-    assert.equal(saved?.areas[0].elements[0].type, "group")
-    assert.deepEqual(saved?.areas[0].elements[0].type === "group" && saved.areas[0].elements[0].children.map((child) => child.id), [source.id, second.id])
-  })
-})
-
-test("duplicating a set gives every copied area and element a fresh id", async () => {
+test("duplicating a set gives copied artboards independent files", async () => {
   await withStore(async (store) => {
     const source = await store.createSet({ name: "English iPhone", locale: "en-US", device: "iPhone", width: 1290, height: 2796 })
     const duplicate = await store.duplicateSet(source.id)
 
     assert.notEqual(duplicate.id, source.id)
-    assert.notEqual(duplicate.areas[0].id, source.areas[0].id)
-    assert.notEqual(duplicate.areas[0].elements[0].id, source.areas[0].elements[0].id)
+    assert.notEqual(duplicate.pageId, source.pageId)
+    assert.equal(duplicate.areas[0].id, source.areas[0].id) // Stable relative HTML links in a separate collection folder.
+    assert.equal(duplicate.areas[0].html, source.areas[0].html)
     assert.equal(duplicate.name, "English iPhone copy")
   })
 })
@@ -179,6 +136,7 @@ test("initialization rejects a managed directory that is a symbolic link", async
 
 test("JSON writes do not leave temporary files behind", async () => {
   await withStore(async (store) => {
+    await store.writeConfig(await store.readConfig())
     const set = await store.createSet({ name: "English Mac", locale: "en-US", device: "Mac", width: 2880, height: 1800 })
     await store.writeSet(set.id, set)
     const contents = await readFile(path.join(store.setsPath, `${set.id}.json`), "utf8")

@@ -1,4 +1,4 @@
-import type { CanvasElement } from "./shared.js"
+import type { CanvasElement } from "./legacy-types.js"
 
 export function flattenCanvasElements(elements: CanvasElement[]): CanvasElement[] {
   return elements.flatMap((element) => element.type === "group"

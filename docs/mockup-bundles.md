@@ -13,10 +13,14 @@ my-device-frames/
     └── iphone-angle.webp
 ```
 
-Choose the folder from **Import bundle** in the device-frame picker. StoreShot
-reads the manifest first, lets the user select individual mockups, and copies
-only the selected definitions, their referenced assets, and the license file
-into the current project's `mockup-bundles/<bundle-id>/` folder.
+Place the complete bundle in the project's `mockup-bundles/<bundle-id>/`
+folder, including its license. HTML artboards can reference frame images with
+relative URLs such as `../../mockup-bundles/<bundle-id>/assets/iphone-front.svg`.
+Use CSS positioning, clipping, and transforms to place screenshots behind frames.
+
+The manifest remains useful for geometry and attribution. The `migrate` command
+reads it to convert legacy device layers into HTML/CSS automatically, including
+perspective screens. The preview workspace does not include a frame picker.
 
 ## Manifest
 

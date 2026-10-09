@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="StoreShot is a local-first CLI and visual editor for creating App Store screenshots."
+      content="StoreShot is a local-first CLI and HTML preview workspace for creating App Store screenshots."
     />
     <meta name="theme-color" content="#ffffff" />
     <title>StoreShot — App Store screenshots, locally</title>
@@ -402,7 +402,7 @@
       <section class="hero shell">
         <h1>App Store screenshots, <span>without the design silo.</span></h1>
         <p class="lede">
-          StoreShot is an open source visual editor and CLI that keeps your screenshot
+          StoreShot is an open source HTML preview workspace and CLI that keeps your screenshot
           workflow open, local, and ready for humans, scripts, and AI agents.
         </p>
         <div class="actions">
@@ -431,17 +431,18 @@
               src="storeshot-editor.png"
               width="3024"
               height="1534"
-              alt="StoreShot visual editor showing an App Store screenshot set for Lokimaps"
+              alt="Earlier StoreShot visual editor showing an App Store screenshot set for Lokimaps"
             />
           </div>
+          <figcaption>Earlier StoreShot workspace. The current version previews editable HTML/CSS artwork.</figcaption>
         </figure>
       </section>
 
       <section class="install shell" id="install">
         <div>
-          <h2>From zero to canvas in a minute.</h2>
+          <h2>From zero to artwork in a minute.</h2>
           <p class="install-copy">
-            Install the CLI, create a project, and open the local visual editor.
+            Install the CLI, create a project, and open the local preview workspace.
             No account, database, or hosted backend required.
           </p>
         </div>
@@ -452,8 +453,7 @@
             <span>Terminal</span>
           </div>
           <pre><code><span class="prompt">$</span> npm install --global storeshot
-<span class="prompt">$</span> storeshot init app-store-screenshots \
-    --app-name "Example App" --platform ios
+<span class="prompt">$</span> storeshot init app-store-screenshots
 <span class="prompt">$</span> storeshot dev app-store-screenshots</code></pre>
         </div>
       </section>

@@ -1,39 +1,62 @@
-import type { Asset, ScreenshotSet } from "../shared"
-import type { DeviceMockup } from "../device-mockups"
-import { renderScreenshotArea } from "./canvas-renderer"
+import { exportPath, readinessIssues } from "../app-store"
+import type { ScreenshotSet, StoreShotProject } from "../shared"
 import { createZipArchive, safeFileNamePart, type ZipFile } from "./zip"
 
-export interface ExportProgress {
-  completed: number
-  total: number
-}
-
-export async function exportScreenshotSet(
-  set: ScreenshotSet,
-  assetLookup: Map<string, Asset>,
-  mockupLookup: Map<string, DeviceMockup>,
-  onProgress?: (progress: ExportProgress) => void,
-): Promise<void> {
+async function collectionFiles(set: ScreenshotSet): Promise<ZipFile[]> {
   const files: ZipFile[] = []
-
   for (const [index, area] of set.areas.entries()) {
-    const data = await renderScreenshotArea(area, assetLookup, mockupLookup, set.canvas)
-    files.push({
-      data,
-      name: `${String(index + 1).padStart(2, "0")}-${safeFileNamePart(area.name, `screenshot-${index + 1}`)}.png`,
+    const response = await fetch(`/api/sets/${set.id}/areas/${area.id}/png`, {
+      method: "POST",
     })
-    onProgress?.({ completed: index + 1, total: set.areas.length })
+    if (!response.ok) {
+      const error = (await response.json().catch(() => ({}))) as {
+        error?: string
+      }
+      throw new Error(error.error ?? `Export failed (${response.status})`)
+    }
+    files.push({
+      data: await response.blob(),
+      name: `${exportPath(set)}/${String(index + 1).padStart(2, "0")}-${safeFileNamePart(area.name, "image")}.png`,
+    })
   }
-
-  const archive = await createZipArchive(files)
-  downloadBlob(archive, `${safeFileNamePart(set.name, "screenshot-set")}.zip`)
+  return files
 }
-
-function downloadBlob(blob: Blob, fileName: string): void {
-  const url = URL.createObjectURL(blob)
+async function download(files: ZipFile[], name: string): Promise<void> {
+  const url = URL.createObjectURL(await createZipArchive(files))
   const link = document.createElement("a")
   link.href = url
-  link.download = fileName
+  link.download = `${safeFileNamePart(name, "app-store-assets")}.zip`
   link.click()
-  setTimeout(() => URL.revokeObjectURL(url), 0)
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+export async function exportCollections(
+  project: StoreShotProject,
+  sets: ScreenshotSet[],
+): Promise<void> {
+  const files: ZipFile[] = []
+  for (const set of sets) files.push(...(await collectionFiles(set)))
+  const pageIds = new Set(sets.map((set) => set.pageId))
+  const manifest = {
+    store: "app-store",
+    scale: 1,
+    pages: project.config.pages.filter((page) => pageIds.has(page.id)),
+    issues: readinessIssues(project.config, project.sets).filter(
+      (issue) => issue.pageId && pageIds.has(issue.pageId),
+    ),
+    collections: sets.map((set) => ({
+      id: set.id,
+      pageId: set.pageId,
+      locale: set.locale,
+      specification: set.specId,
+      canvas: set.canvas,
+      directory: exportPath(set),
+    })),
+  }
+  files.push({
+    name: "manifest.json",
+    data: new Blob([JSON.stringify(manifest, null, 2)], {
+      type: "application/json",
+    }),
+  })
+  await download(files, `${project.directory.split(/[\\/]/).pop()}-app-store`)
 }

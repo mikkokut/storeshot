@@ -1,9 +1,9 @@
 # StoreShot
 
-StoreShot is a local-first, agent-native CLI and visual editor for creating
-App Store screenshots. Run it in a folder, edit screenshot sets in the browser,
-and keep the complete project as ordinary assets and JSON files that humans,
-scripts, and AI coding agents can all inspect and change.
+StoreShot is a local-first CLI and live preview workspace for creating App Store
+screenshots and creative assets, organized around App Store Connect. Each artboard is an ordinary HTML file with CSS. Edit files with
+your editor or coding agent, watch the browser preview update on save, and render
+full-resolution PNGs with headless Chrome.
 
 > **Pre-release:** StoreShot is under active development, changes quickly, and
 > does not yet promise backward compatibility. It supports Apple App Store
@@ -12,44 +12,41 @@ scripts, and AI coding agents can all inspect and change.
 StoreShot is already used in production for the iOS app
 [Lokimaps](https://www.lokimaps.com/).
 
-![StoreShot visual editor showing an App Store screenshot set for Lokimaps](docs/images/storeshot-editor.png)
-
 ## Why StoreShot?
 
-Many existing screenshot tools were designed as closed, manual design silos.
-Their project data is difficult to inspect, version, automate, or hand to an AI
-agent, which makes routine localization and release work unnecessarily awkward.
-
-StoreShot keeps the workflow open and file-based. The visual editor is useful
-for hands-on design, while the same project can be reviewed, generated, or
-updated by an agent through normal filesystem tools. There is no account,
-database, hosted project, or remote backend.
+The project is a folder of HTML, JSON metadata, and assets. Browser-native layout
+supports CSS Grid, Flexbox, typography, transforms, and SVG without a canvas layer
+model. There is no account, database, hosted project, or remote backend.
 
 ## What it can do
 
-- Organize raw screenshots, brand assets, and other reusable imagery.
-- Create ordered screenshot sets for a locale and Apple device family.
-- Arrange text, shapes, images, recolorable artwork, and device mockups on a
-  free-form canvas.
-- Group and ungroup layers, with multi-selection on the canvas and in the layer
-  list.
-- Use undo/redo, multi-layer copy/paste and duplication, alignment guides,
-  layers, keyboard movement, and canvas zoom.
-- Export an entire set as full-resolution PNG files in a ZIP archive.
-- Inspect, validate, edit, and render projects from the CLI with stable JSON
-  output for scripts and AI agents.
-- Import portable device-mockup bundles with explicit frame geometry and license
-  metadata.
-- Persist everything inside the selected project directory.
+- Organize a Default Product Page, Custom Product Pages, and Product Page Optimization tests with up to three treatments each.
+- Prepare required device screenshots at one fixed size for iPhone, iPad, Apple Watch, Mac, Apple TV, and Vision Pro.
+- Create Product Page Header, Search Results, and Universal Creative images with Apple’s accepted dimensions.
+- Copy artwork into another language or audience variation as independent compositions.
+- See missing required slots, invalid dimensions, and Watch consistency issues before upload.
+- Compose artwork in HTML/CSS with your editor or agent; click a screenshot to review the full collection in a fullscreen viewer.
+- Export ordered PNGs grouped by page, language, and destination, with an export manifest.
+- Migrate legacy projects with backups, preserving artwork and flagging ambiguous destinations.
+
+StoreShot prepares **still images** locally. Uploading/submitting to Apple, running
+live experiments, analytics, app previews (video), and app icons remain in App Store
+Connect or Apple’s authoring tools.
+
+See [App Store workspace architecture and Apple references](docs/app-store-workspace.md)
+for the model, specifications, and workflow.
 
 ## Quick start
 
-StoreShot requires Node.js 22.12 or newer.
+StoreShot requires Node.js 22.12 or newer. Migration and PNG export also require Google Chrome
+or Chromium. Set `STORESHOT_CHROME=/path/to/chrome` for a nonstandard installation;
+the CLI also accepts `render --chrome /path/to/chrome`. Chrome is not downloaded
+by npm install.
 
 ```bash
 npm install --global storeshot
 mkdir app-store-screenshots
-storeshot init app-store-screenshots --app-name "Example App" --platform ios
+storeshot init app-store-screenshots
 storeshot dev app-store-screenshots
 ```
 
@@ -67,7 +64,7 @@ The default server is bound to the loopback interface. Be deliberate when using
 
 StoreShot supports the full screenshot workflow without requiring browser
 automation. Commands can inspect the project, create and update sets, manage
-assets, validate direct JSON edits, and render real PNG previews or final
+assets, validate project structure, and render real PNG previews or final
 output. Global `-C/--project` selects the project and `--json` provides stable
 machine-readable results.
 
@@ -101,26 +98,72 @@ app-store-screenshots/
 │       └── assets/
 └── sets/
     ├── english-iphone-a1b2c3d4.json
-    └── finnish-iphone-e5f6g7h8.json
+    └── english-iphone-a1b2c3d4/
+        ├── area-one.html
+        └── area-two.html
 ```
 
-CLI renders are written to `renders/<set-id>/` by default. They are generated
+CLI renders are written to `renders/<page>/<locale>/<spec>/<collection-id>/` by default. They are generated
 output; teams can commit or ignore them according to their release workflow.
 
-Each set stores its locale, device, output dimensions, ordered screenshots, and
-canvas layers. StoreShot only serves files inside the selected project boundary.
-Project assets and imported bundles remain subject to their own licenses.
+The version 2 project config stores product pages, their languages, and optimization
+tests. New pages start without a language; choose one when creating the first screenshot
+or artwork. Device destinations are selected per collection. Each version 3 collection manifest stores its `pageId`,
+`specId`, locale, pixel dimensions, and
+ordered artboard file references. The HTML files are the source of truth; there
+is no embedded layer JSON. Reference assets from an artboard with paths such as
+`../../assets/screenshots/home.png`. Inline CSS is encouraged; local CSS, SVG,
+and fonts also work. Put fonts in `assets/other/` and use `@font-face`.
 
-The editor and CLI renderer load fonts from [Bunny Fonts](https://fonts.bunny.net/)
-on demand. The project itself remains local, but the first browser or CLI render
-of a hosted font requires a network request to Bunny Fonts. The CLI caches the
-downloaded font files in the operating system's temporary directory.
+Previews and exports render static HTML/CSS. External HTTP/HTTPS stylesheets and
+fonts are supported from any provider, including ordinary Bunny Fonts links:
+
+```html
+<link rel="stylesheet" href="https://fonts.bunny.net/css?family=geist:400,700&display=swap">
+<style>body { font-family: 'Geist', sans-serif; }</style>
+```
+
+Scripts, nested frames, and remote images remain blocked. Keep images in the
+project or embed them as data URLs. Hosted fonts need network access when uncached.
+The renderer waits for images and fonts before capturing the set's exact viewport.
+Use local fonts for consistent typography across machines.
+
+## Migrating existing projects
+
+```bash
+storeshot migrate ./app-store-screenshots
+# Equivalent: storeshot -C ./app-store-screenshots migrate --json
+storeshot -C ./app-store-screenshots validate
+storeshot dev ./app-store-screenshots
+```
+
+Migration converts text, images, shapes, groups, and rect/perspective device
+mockups to HTML/CSS/SVG. Version 2 HTML collections are upgraded without changing their artwork. Original config
+and collection JSON files are retained as `.v1.bak` or `.v2.bak`; assets are unchanged.
+Collections go on the default product page, with languages
+inferred. Ambiguous sizes, duplicates, and Android artwork stay unassigned for review.
+Already migrated collections are
+skipped. Conversion is preflighted before writes, and existing backups or
+artboard folders are never overwritten. If interrupted, completed sets remain
+usable; recover the interrupted set from its backup and move its partial HTML
+folder aside before retrying.
+
+Bundled artwork and frames are embedded in migrated HTML. Fonts use normal Bunny
+Fonts stylesheet links; font files are not embedded or saved in your project.
+Migration uses Chrome and loads these fonts online to preserve the original
+line breaks and text positions. Legacy `Geist Variable` maps to Bunny’s `Geist`.
+Migrated text uses editable SVG text, and enlarged mockups have a slight CSS blur
+to approximate Fabric’s original bitmap sampling. Font licenses still apply.
+Browser rasterization can differ from Fabric, so review migrated previews before exporting. Normal commands
+require version 2 app configuration and version 3 collections; the old format is supported only by `migrate`.
 
 ## Device mockups
 
 The built-in Apple frames come from the MIT-licensed
 [FrameUp Free](https://github.com/amirmun99/FrameUp-Free) project. StoreShot also
-supports project-local bundles and lets users import all or selected frames.
+supports project-local bundles placed under `mockup-bundles/`.
+Use project frame images in HTML; migration converts existing mockup placements
+into HTML with CSS clipping and perspective transforms.
 
 See the [mockup bundle format](docs/mockup-bundles.md) for the manifest and
 geometry specification.
@@ -147,7 +190,7 @@ Useful commands:
 | `npm run typecheck` | Type-check the project |
 | `npm run build` | Build the CLI and browser UI |
 | `npm run licenses` | Regenerate bundled dependency license texts |
-| `npm run check` | Run license, type, and production-build validation |
+| `npm run check` | Run license checks, type-checks, tests, and production builds |
 
 The repository also includes `AGENTS.md` and project-local Codex configuration
 for agent-assisted development.

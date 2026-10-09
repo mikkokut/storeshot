@@ -1,220 +1,79 @@
 import assert from "node:assert/strict"
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import test from "node:test"
-
-import { createCanvas, loadImage } from "canvas"
-
 import { readImageMetadata } from "../src/image-metadata.js"
-import { groupCanvasElements } from "../src/group-elements.js"
 import { renderScreenshotSets } from "../src/node-renderer.js"
 import { ProjectStore } from "../src/project-store.js"
-import type { ShapeElement } from "../src/shared.js"
 
-test("Node renderer writes scaled PNG previews with the browser document model", async () => {
+test("Chrome renders canonical HTML, local CSS and images at the requested size", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "storeshot-render-test-"))
   try {
     const store = new ProjectStore(directory)
     await store.initialize()
-    const source = createCanvas(120, 240)
-    const context = source.getContext("2d")
-    context.fillStyle = "#3366ff"
-    context.fillRect(0, 0, source.width, source.height)
-    await store.addAsset("screenshots", "home.png", source.toBuffer("image/png"))
-    await mkdir(path.join(store.mockupBundlesPath, "unrelated-incomplete-bundle"))
-    const set = await store.createSet({ name: "English iPhone", locale: "en-US", device: "iPhone", width: 1320, height: 2868 })
-    set.areas[0].elements.push({
-      id: "element-device-mockup",
-      type: "mockup",
-      mockupId: "frameup-free/iphone-15-pro",
-      assetId: "screenshots/home.png",
-      x: 360,
-      y: 650,
-      width: 600,
-      height: 1300,
-      rotation: 0,
-      opacity: 1,
-    })
-    set.areas[0].elements.push(
-      {
-        id: "element-circle",
-        type: "shape",
-        shape: "circle",
-        x: 80,
-        y: 100,
-        width: 240,
-        height: 240,
-        rotation: 0,
-        opacity: 1,
-        fill: "#ffcc00",
-        stroke: "#111111",
-        strokeWidth: 12,
-        cornerRadius: 0,
-      },
-      {
-        id: "element-line",
-        type: "shape",
-        shape: "line",
-        x: 80,
-        y: 400,
-        width: 520,
-        height: 1,
-        rotation: 0,
-        opacity: 1,
-        fill: "#ffffff",
-        stroke: "#ff0066",
-        strokeWidth: 16,
-        cornerRadius: 0,
-      },
-      {
-        id: "element-rectangle",
-        type: "shape",
-        shape: "rectangle",
-        x: 80,
-        y: 500,
-        width: 420,
-        height: 180,
-        rotation: 0,
-        opacity: 1,
-        fill: "#22cc88",
-        stroke: "#003322",
-        strokeWidth: 10,
-        cornerRadius: 24,
-      },
-    )
-    set.areas[0].elements.push(groupCanvasElements([
-      {
-        id: "element-group-circle",
-        type: "shape",
-        shape: "circle",
-        x: 680,
-        y: 120,
-        width: 180,
-        height: 180,
-        rotation: 0,
-        opacity: 1,
-        fill: "#ffffff",
-        stroke: "#000000",
-        strokeWidth: 8,
-        cornerRadius: 0,
-      },
-      {
-        id: "element-group-line",
-        type: "shape",
-        shape: "line",
-        x: 680,
-        y: 340,
-        width: 360,
-        height: 1,
-        rotation: 0,
-        opacity: 1,
-        fill: "#ffffff",
-        stroke: "#000000",
-        strokeWidth: 8,
-        cornerRadius: 0,
-      },
-    ], () => "render-group"))
-    const result = await renderScreenshotSets({
-      clean: false,
-      outputDirectory: path.join(directory, "renders"),
-      packageRoot: process.cwd(),
-      scale: 0.1,
-      sets: [set],
-      store,
-    })
-
+    const set = await store.createSet({ name: "HTML", locale: "en-US", device: "iPhone", width: 400, height: 800 })
+    const dir = path.join(store.setsPath, set.id)
+    await writeFile(path.join(dir, "style.css"), "body{margin:0;background:rgb(12,34,56)}h1{color:white;font:40px Arial}")
+    await store.addAsset("brand", "logo.svg", Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="red"/></svg>'))
+    // Deliberately leave the in-memory HTML stale to prove the file is authoritative.
+    await writeFile(path.join(dir, `${set.areas[0].id}.html`), '<!doctype html><link rel="stylesheet" href="style.css"><h1>Native HTML</h1><img src="../../assets/brand/logo.svg">')
+    const options = { clean: false, outputDirectory: path.join(directory, "renders"), scale: .5, sets: [set], store }
+    const result = await renderScreenshotSets(options)
     assert.equal(result.files.length, 1)
-    assert.deepEqual(readImageMetadata(await readFile(result.files[0].path)), { width: 132, height: 287 })
-  } finally {
-    await rm(directory, { recursive: true, force: true })
-  }
+    assert.deepEqual(readImageMetadata(await readFile(result.files[0].path)), { width: 200, height: 400 })
+    assert.equal(result.files[0].width, 200)
+    await assert.rejects(renderScreenshotSets({ ...options, scale: 0 }), /scale/)
+    await assert.rejects(renderScreenshotSets({ ...options, area: "missing" }), /no area/)
+    await assert.rejects(renderScreenshotSets({ ...options, clean: true, outputDirectory: store.setsPath }), /source files/)
+    await writeFile(path.join(dir, `${set.areas[0].id}.html`), '<img src="../../assets/brand/missing.png">')
+    await assert.rejects(renderScreenshotSets(options), /missing|decode|EncodingError/i)
+  } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
-test("Node renderer preserves shape rendering when layers are grouped", async () => {
-  const directory = await mkdtemp(path.join(tmpdir(), "storeshot-group-render-test-"))
+test("previews and Chrome exports load CSS and fonts from another origin", async () => {
+  const { createServer } = await import("node:http")
+  const { startServer } = await import("../src/server.js")
+  const { launchChrome } = await import("../src/node-renderer.js")
+  const font = await readFile(path.join(process.cwd(), "fonts/Geist-Variable.ttf"))
+  const requests: string[] = []
+  let missingFont = false
+  const remote = createServer((request, response) => {
+    requests.push(request.url ?? "")
+    response.setHeader("Access-Control-Allow-Origin", "*")
+    if (request.url === "/style.css") {
+      response.writeHead(200, { "Content-Type": "text/css" }).end('@font-face{font-family:Remote;src:url("/font.ttf")}body{font-family:Remote}')
+    } else if (request.url === "/font.ttf" && !missingFont) {
+      response.writeHead(200, { "Content-Type": "font/ttf" }).end(font)
+    } else response.writeHead(404).end()
+  })
+  await new Promise<void>((resolve) => remote.listen(0, "127.0.0.1", resolve))
+  const remoteOrigin = `http://127.0.0.1:${(remote.address() as import("node:net").AddressInfo).port}`
+  const directory = await mkdtemp(path.join(tmpdir(), "storeshot-remote-font-"))
+  const service = await startServer({ host: "127.0.0.1", port: 0, packageRoot: process.cwd(), projectDirectory: directory, useVite: false })
   try {
-    const store = new ProjectStore(directory)
-    await store.initialize()
-    const set = await store.createSet({ name: "Grouping", locale: "en-US", device: "iPhone", width: 1320, height: 2868 })
-    const shapes: ShapeElement[] = [
-      {
-        id: "element-rectangle",
-        type: "shape",
-        shape: "rectangle",
-        x: 264,
-        y: 860,
-        width: 792,
-        height: 574,
-        rotation: 0,
-        opacity: 1,
-        fill: "#ffffff",
-        stroke: "#000000",
-        strokeWidth: 5,
-        cornerRadius: 33,
-      },
-      {
-        id: "element-circle",
-        type: "shape",
-        shape: "circle",
-        x: 422,
-        y: 860,
-        width: 475,
-        height: 475,
-        rotation: 0,
-        opacity: 1,
-        fill: "#ffffff",
-        stroke: "#000000",
-        strokeWidth: 5,
-        cornerRadius: 0,
-      },
-    ]
-    set.areas = [
-      { id: "area-ungrouped", name: "Ungrouped", background: "#245f4a", elements: structuredClone(shapes) },
-      { id: "area-grouped", name: "Grouped", background: "#245f4a", elements: [groupCanvasElements(shapes, () => "group")] },
-    ]
-    const result = await renderScreenshotSets({
-      clean: false,
-      outputDirectory: path.join(directory, "renders"),
-      packageRoot: process.cwd(),
-      scale: 0.25,
-      sets: [set],
-      store,
-    })
-    const ungrouped = result.files.find((file) => file.areaId === "area-ungrouped")
-    const grouped = result.files.find((file) => file.areaId === "area-grouped")
-    assert.ok(ungrouped)
-    assert.ok(grouped)
-    const difference = await pixelDifference(await readFile(grouped.path), await readFile(ungrouped.path))
-    assert.deepEqual(difference, { changedPixels: 0, meanChannelDelta: 0 })
+    const set = await service.store.createSet({ name: "Fonts", locale: "en-US", device: "Phone", width: 400, height: 800 })
+    set.areas[0].html = `<!doctype html><link rel="stylesheet" href="${remoteOrigin}/style.css"><body>Remote font</body>`
+    await service.store.writeSet(set.id, set)
+    const options = { store: service.store, sets: [set], outputDirectory: path.join(directory, "renders"), clean: false, scale: 1 }
+    await renderScreenshotSets(options)
+    assert.ok(requests.includes("/style.css"))
+    assert.ok(requests.includes("/font.ttf"))
+    requests.length = 0
+    const browser = await launchChrome()
+    try {
+      const page = await browser.newPage()
+      await page.setContent(`<iframe sandbox src="http://127.0.0.1:${service.port}/artboards/sets/${set.id}/${set.areas[0].id}.html"></iframe>`)
+      const frame = page.frames().find((frame) => frame.url().includes("/artboards/"))!
+      assert.equal(await frame.evaluate(async () => { await document.fonts.ready; return document.fonts.check("16px Remote") }), true)
+      assert.ok(requests.includes("/font.ttf"))
+    } finally { await browser.close() }
+    missingFont = true
+    await assert.rejects(renderScreenshotSets(options), /missing or blocked resources/)
   } finally {
+    await service.close()
+    remote.closeAllConnections()
+    await new Promise<void>((resolve) => remote.close(() => resolve()))
     await rm(directory, { recursive: true, force: true })
   }
 })
-
-async function pixelDifference(first: Buffer, second: Buffer): Promise<{ changedPixels: number; meanChannelDelta: number }> {
-  const [firstImage, secondImage] = await Promise.all([loadImage(first), loadImage(second)])
-  assert.equal(firstImage.width, secondImage.width)
-  assert.equal(firstImage.height, secondImage.height)
-  const canvas = createCanvas(firstImage.width, firstImage.height)
-  const context = canvas.getContext("2d")
-  context.drawImage(firstImage, 0, 0)
-  const firstPixels = context.getImageData(0, 0, canvas.width, canvas.height).data
-  context.clearRect(0, 0, canvas.width, canvas.height)
-  context.drawImage(secondImage, 0, 0)
-  const secondPixels = context.getImageData(0, 0, canvas.width, canvas.height).data
-  let changedPixels = 0
-  let totalChannelDelta = 0
-  for (let index = 0; index < firstPixels.length; index += 4) {
-    const delta = Math.abs(firstPixels[index] - secondPixels[index])
-      + Math.abs(firstPixels[index + 1] - secondPixels[index + 1])
-      + Math.abs(firstPixels[index + 2] - secondPixels[index + 2])
-      + Math.abs(firstPixels[index + 3] - secondPixels[index + 3])
-    if (delta > 0) changedPixels += 1
-    totalChannelDelta += delta
-  }
-  return {
-    changedPixels,
-    meanChannelDelta: totalChannelDelta / firstPixels.length,
-  }
-}

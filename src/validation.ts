@@ -1,7 +1,7 @@
+import { readinessIssues } from "./app-store.js"
 import { lstat, readFile, readdir } from "node:fs/promises"
 import path from "node:path"
 
-import { BUILT_IN_ARTWORK } from "./artwork.js"
 import {
   MOCKUP_BUNDLE_FILENAME,
   mergeDeviceMockupCatalogs,
@@ -9,7 +9,6 @@ import {
   resolveMockupBundle,
   type DeviceMockupCatalog,
 } from "./device-mockups.js"
-import { flattenCanvasElements } from "./element-tree.js"
 import { resolvePackagePublicDirectory } from "./package-assets.js"
 import {
   ASSETS_DIRECTORY,
@@ -17,7 +16,6 @@ import {
   MOCKUP_BUNDLES_DIRECTORY,
   ProjectStore,
   SETS_DIRECTORY,
-  parseScreenshotSet,
   parseStoreShotConfig,
 } from "./project-store.js"
 import type { Asset, AssetCategory, ScreenshotSet, StoreShotConfig } from "./shared.js"
@@ -84,7 +82,7 @@ export async function validateProject(directory: string, packageRoot: string): P
         continue
       }
       try {
-        const set = parseScreenshotSet(JSON.parse(await readRegularFile(path.join(store.setsPath, entry.name), store.setsPath)))
+        const set = await store.readSet(entry.name.slice(0, -5))
         sets.push(set)
         if (entry.name !== `${set.id}.json`) {
           issues.push(issue("error", "set.filenameMismatch", relativePath, `Set id ${set.id} must be stored in ${set.id}.json`))
@@ -120,7 +118,10 @@ export async function validateProject(directory: string, packageRoot: string): P
     }
   }
 
-  validateSetSemantics(sets, assets, mockupCatalog, issues)
+  validateSetSemantics(sets, issues)
+  if (config) for (const entry of readinessIssues(config, sets)) {
+    issues.push(issue(["page", "dimensions", "count", "duplicate", "watch-size"].includes(entry.code) ? "error" : "warning", `appStore.${entry.code}`, entry.setId ? `sets/${entry.setId}.json` : `${entry.pageId}/${entry.locale}`, entry.message))
+  }
   return validationResult(root, issues, sets, config, assets, mockupCatalog)
 }
 
@@ -136,14 +137,9 @@ async function loadBuiltInMockupCatalog(packageRoot: string): Promise<DeviceMock
 
 function validateSetSemantics(
   sets: ScreenshotSet[],
-  assets: Record<AssetCategory, Asset[]> | undefined,
-  mockupCatalog: DeviceMockupCatalog | undefined,
   issues: ValidationIssue[],
 ): void {
   const setIds = new Set<string>()
-  const assetIds = new Set(Object.values(assets ?? {}).flat().map((asset) => asset.id))
-  const mockupIds = new Set(mockupCatalog?.mockups.map((mockup) => mockup.id) ?? [])
-  const artworkIds = new Set(BUILT_IN_ARTWORK.map((artwork) => artwork.id))
 
   for (const set of sets) {
     const setPath = `${SETS_DIRECTORY}/${set.id}.json`
@@ -163,18 +159,7 @@ function validateSetSemantics(
     for (const area of set.areas) {
       if (ids.has(area.id)) issues.push(issue("error", "set.duplicateObjectId", setPath, `Duplicate area or element id: ${area.id}`))
       ids.add(area.id)
-      for (const element of flattenCanvasElements(area.elements)) {
-        if (ids.has(element.id)) issues.push(issue("error", "set.duplicateObjectId", setPath, `Duplicate area or element id: ${element.id}`))
-        ids.add(element.id)
-        if (element.type === "mockup") {
-          if (!assetIds.has(element.assetId)) issues.push(issue("error", "reference.asset", setPath, `Element ${element.id} references missing asset ${element.assetId}`))
-          if (!mockupIds.has(element.mockupId)) issues.push(issue("error", "reference.mockup", setPath, `Element ${element.id} references missing mockup ${element.mockupId}`))
-        } else if (element.type === "image" && element.source.kind === "asset" && !assetIds.has(element.source.assetId)) {
-          issues.push(issue("error", "reference.asset", setPath, `Element ${element.id} references missing asset ${element.source.assetId}`))
-        } else if (element.type === "image" && element.source.kind === "builtin" && !artworkIds.has(element.source.id)) {
-          issues.push(issue("error", "reference.artwork", setPath, `Element ${element.id} references missing built-in artwork ${element.source.id}`))
-        }
-      }
+
     }
   }
 }

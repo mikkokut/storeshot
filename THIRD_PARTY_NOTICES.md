@@ -48,26 +48,25 @@ The source links, authorship, and complete CC0 1.0 legal text are retained in
 ### Geist
 
 StoreShot self-hosts the Geist variable font through
-[`@fontsource-variable/geist`](https://fontsource.org/fonts/geist) in the UI and
-the official [Geist font repository](https://github.com/vercel/geist-font) in
-the CLI renderer. Geist is Copyright 2024 The Geist Project Authors and licensed
+[`@fontsource-variable/geist`](https://fontsource.org/fonts/geist) in the UI.
+Migrated artboards link to Geist via Bunny Fonts. Geist is Copyright 2024
+The Geist Project Authors and licensed
 under the SIL Open Font License 1.1.
 
 The complete OFL text is shipped at
 `src/ui/public/licenses/geist-OFL-1.1.txt`.
 
-### node-canvas
+### Puppeteer
 
-CLI PNG rendering uses
-[`canvas`](https://github.com/Automattic/node-canvas), Copyright (c) 2010
-LearnBoost and contributors and Copyright (c) 2014 Automattic, Inc and
-contributors, under the MIT License. The upstream license text is reproduced in
-`THIRD_PARTY_LICENSES.txt`.
+Headless Chrome rendering uses [`puppeteer-core`](https://github.com/puppeteer/puppeteer)
+under Apache-2.0. Its upstream license is retained in
+`third_party/puppeteer-LICENSE` and reproduced in `THIRD_PARTY_LICENSES.txt`.
+Chrome is installed separately and is not redistributed by StoreShot.
 
 ## Hosted fonts
 
-The editor can fetch a font catalog and selected font files from
-[Bunny Fonts](https://fonts.bunny.net/) at runtime. These fonts are not included
+Migration creates stylesheet links to [Bunny Fonts](https://fonts.bunny.net/).
+Previews and exports fetch linked fonts at render time. These fonts are not included
 in the StoreShot source or npm package. Each family retains its own license;
 users should review the family page before redistributing font files or using a
 font where attribution is required.
@@ -84,7 +83,7 @@ upstream project where its license and authorship information are maintained.
 | [`@base-ui/react`](https://www.npmjs.com/package/@base-ui/react) | MIT |
 | [`@fontsource-variable/geist`](https://www.npmjs.com/package/@fontsource-variable/geist) | OFL-1.1 |
 | [`commander`](https://www.npmjs.com/package/commander) | MIT |
-| [`fabric`](https://www.npmjs.com/package/fabric) | MIT |
+| [`puppeteer-core`](https://www.npmjs.com/package/puppeteer-core) | Apache-2.0 |
 | [`open`](https://www.npmjs.com/package/open) | MIT |
 | [`react-resizable-panels`](https://www.npmjs.com/package/react-resizable-panels) | MIT |
 | [`tw-animate-css`](https://www.npmjs.com/package/tw-animate-css) | MIT |

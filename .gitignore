@@ -9,3 +9,4 @@ dist/
 # Local StoreShot project data used by the development CLI.
 playground/*
 !playground/.gitkeep
+/playground2/

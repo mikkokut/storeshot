@@ -18,22 +18,10 @@ test("project validation checks schema versions and cross-file references", asyn
     assert.equal(valid.report.ok, true)
     assert.deepEqual(valid.report.errors, [])
 
-    set.areas[0].elements.push({
-      id: "element-missing-asset",
-      type: "image",
-      source: { kind: "asset", assetId: "brand/missing.png" },
-      fit: "contain",
-      x: 0,
-      y: 0,
-      width: 100,
-      height: 100,
-      rotation: 0,
-      opacity: 1,
-    })
-    await store.writeSet(set.id, set)
+    await rm(path.join(store.setsPath, set.id, `${set.areas[0].id}.html`))
     const missingReference = await validateProject(directory, process.cwd())
     assert.equal(missingReference.report.ok, false)
-    assert.ok(missingReference.report.errors.some((issue) => issue.code === "reference.asset"))
+    assert.ok(missingReference.report.errors.some((issue) => issue.code === "set.invalid"))
 
     await writeFile(store.configPath, JSON.stringify({ version: 2, appName: "Example", platforms: ["ios"] }))
     const invalidVersion = await validateProject(directory, process.cwd())

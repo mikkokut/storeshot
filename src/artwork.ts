@@ -37,7 +37,3 @@ const artworkById = new Map(BUILT_IN_ARTWORK.map((artwork) => [artwork.id, artwo
 export function builtInArtworkById(id: string): BuiltInArtworkDefinition | undefined {
   return artworkById.get(id)
 }
-
-export function artworkCategoryLabel(category: ArtworkCategory): string {
-  return { decor: "Decor", lines: "Lines", laurels: "Laurels" }[category]
-}
