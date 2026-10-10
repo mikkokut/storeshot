@@ -20,14 +20,13 @@ model. There is no account, database, hosted project, or remote backend.
 
 ## What it can do
 
-- Organize a Default Product Page, Custom Product Pages, and Product Page Optimization tests with up to three treatments each.
+- Organize product pages with independent languages and artwork for every device.
 - Prepare required device screenshots at one fixed size for iPhone, iPad, Apple Watch, Mac, Apple TV, and Vision Pro.
 - Create Product Page Header, Search Results, and Universal Creative images with Apple’s accepted dimensions.
 - Copy artwork into another language or audience variation as independent compositions.
 - See missing required slots, invalid dimensions, and Watch consistency issues before upload.
 - Compose artwork in HTML/CSS with your editor or agent; click a screenshot to review the full collection in a fullscreen viewer.
 - Export ordered PNGs grouped by page, language, and destination, with an export manifest.
-- Migrate legacy projects with backups, preserving artwork and flagging ambiguous destinations.
 
 StoreShot prepares **still images** locally. Uploading/submitting to Apple, running
 live experiments, analytics, app previews (video), and app icons remain in App Store
@@ -38,7 +37,7 @@ for the model, specifications, and workflow.
 
 ## Quick start
 
-StoreShot requires Node.js 22.12 or newer. Migration and PNG export also require Google Chrome
+StoreShot requires Node.js 22.12 or newer. PNG export also requires Google Chrome
 or Chromium. Set `STORESHOT_CHROME=/path/to/chrome` for a nonstandard installation;
 the CLI also accepts `render --chrome /path/to/chrome`. Chrome is not downloaded
 by npm install.
@@ -90,27 +89,30 @@ app-store-screenshots/
 ├── assets/
 │   ├── screenshots/
 │   ├── brand/
-│   └── other/
-├── mockup-bundles/
-│   └── my-device-frames/
-│       ├── storeshot-mockups.json
-│       ├── LICENSE
-│       └── assets/
+│   ├── other/
+│   ├── .storeshot-imports.json   # Created when importing catalog assets
+│   └── .licenses/
 └── sets/
-    ├── english-iphone-a1b2c3d4.json
     └── english-iphone-a1b2c3d4/
+        ├── index.json
+        ├── area-one.json
         ├── area-one.html
+        ├── area-two.json
         └── area-two.html
 ```
 
 CLI renders are written to `renders/<page>/<locale>/<spec>/<collection-id>/` by default. They are generated
 output; teams can commit or ignore them according to their release workflow.
 
-The version 2 project config stores product pages, their languages, and optimization
-tests. New pages start without a language; choose one when creating the first screenshot
+The version 2 project config stores product pages and their languages. New pages start without a language; choose one when creating the first screenshot
 or artwork. Device destinations are selected per collection. Each version 3 collection manifest stores its `pageId`,
 `specId`, locale, pixel dimensions, and
-ordered artboard file references. The HTML files are the source of truth; there
+ordered artboard IDs. Each artboard has its own `<area-id>.json` metadata and
+`<area-id>.html` composition. The set ID comes from its folder name; rename the
+folder without changing JSON. New screenshot IDs are eight characters; an optional
+slug makes filenames descriptive, for example `a1b2c3d4-home-screen.json` and
+`a1b2c3d4-home-screen.html`. Renaming that suffix on both files preserves the ID
+and needs no JSON edits. File paths are inferred from these IDs. The HTML files are the source of truth; there
 is no embedded layer JSON. Reference assets from an artboard with paths such as
 `../../assets/screenshots/home.png`. Inline CSS is encouraged; local CSS, SVG,
 and fonts also work. Put fonts in `assets/other/` and use `@font-face`.
@@ -128,45 +130,23 @@ project or embed them as data URLs. Hosted fonts need network access when uncach
 The renderer waits for images and fonts before capturing the set's exact viewport.
 Use local fonts for consistent typography across machines.
 
-## Migrating existing projects
+## Shipped assets
+
+Search and import individual device frames, laurels, lines, and decorative images:
 
 ```bash
-storeshot migrate ./app-store-screenshots
-# Equivalent: storeshot -C ./app-store-screenshots migrate --json
-storeshot -C ./app-store-screenshots validate
-storeshot dev ./app-store-screenshots
+storeshot asset search "iphone 17" --kind mockup --json
+storeshot asset show frameup-free-iphone-17-pro --json
+storeshot -C ./screenshots asset import frameup-free-iphone-17-pro
+storeshot -C ./screenshots asset installed --json
+storeshot -C ./screenshots asset inspect other/frameup-free-iphone-17-pro.svg --json
 ```
 
-Migration converts text, images, shapes, groups, and rect/perspective device
-mockups to HTML/CSS/SVG. Version 2 HTML collections are upgraded without changing their artwork. Original config
-and collection JSON files are retained as `.v1.bak` or `.v2.bak`; assets are unchanged.
-Collections go on the default product page, with languages
-inferred. Ambiguous sizes, duplicates, and Android artwork stay unassigned for review.
-Already migrated collections are
-skipped. Conversion is preflighted before writes, and existing backups or
-artboard folders are never overwritten. If interrupted, completed sets remain
-usable; recover the interrupted set from its backup and move its partial HTML
-folder aside before retrying.
-
-Bundled artwork and frames are embedded in migrated HTML. Fonts use normal Bunny
-Fonts stylesheet links; font files are not embedded or saved in your project.
-Migration uses Chrome and loads these fonts online to preserve the original
-line breaks and text positions. Legacy `Geist Variable` maps to Bunny’s `Geist`.
-Migrated text uses editable SVG text, and enlarged mockups have a slight CSS blur
-to approximate Fabric’s original bitmap sampling. Font licenses still apply.
-Browser rasterization can differ from Fabric, so review migrated previews before exporting. Normal commands
-require version 2 app configuration and version 3 collections; the old format is supported only by `migrate`.
-
-## Device mockups
-
-The built-in Apple frames come from the MIT-licensed
-[FrameUp Free](https://github.com/amirmun99/FrameUp-Free) project. StoreShot also
-supports project-local bundles placed under `mockup-bundles/`.
-Use project frame images in HTML; migration converts existing mockup placements
-into HTML with CSS clipping and perspective transforms.
-
-See the [mockup bundle format](docs/mockup-bundles.md) for the manifest and
-geometry specification.
+Imports are ordinary images under `assets/other/`, with locally saved geometry,
+source attribution, and licenses. SHA-256 matching identifies existing copies
+regardless of filenames and reports changed imports. Frames come from the
+MIT-licensed FrameUp Free project. See [the asset catalog](docs/asset-catalog.md)
+for rendering geometry, checksum behavior, and adding new shipped assets.
 
 ## Develop from source
 
@@ -190,7 +170,7 @@ Useful commands:
 | `npm run typecheck` | Type-check the project |
 | `npm run build` | Build the CLI and browser UI |
 | `npm run licenses` | Regenerate bundled dependency license texts |
-| `npm run check` | Run license checks, type-checks, tests, and production builds |
+| `npm run check` | Run license and catalog checks, type-checks, tests, and production builds |
 
 The repository also includes `AGENTS.md` and project-local Codex configuration
 for agent-assisted development.

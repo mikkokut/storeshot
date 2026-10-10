@@ -22,6 +22,24 @@ for one.
 Use Node.js 22.12 or newer and npm. Keep `package-lock.json` synchronized with
 `package.json`.
 
+## Maintaining and using the StoreShot skill
+
+The skill at `.agents/skills/storeshot/SKILL.md` is intended for distribution to
+StoreShot users. Keep it self-contained: use installed CLI commands, avoid
+repository-specific workflows, and do not link to files outside the skill folder.
+Keep contributor-only guidance in this file.
+
+- For screenshot work in this checkout, use the ignored `playground/` project
+  unless the user selects another folder. Keep artwork separate from CLI/UI source.
+- The installed npm release may lag this checkout. Check its commands and schema
+  support before using new features; do not write a newer project format with an
+  older CLI. When testing the development version, use `npm run storeshot --`
+  instead of the installed `storeshot` command, and `npm run dev` for the live UI.
+- Consult [CLI workflow](docs/cli.md), [App Store workspace](docs/app-store-workspace.md),
+  and [asset catalog and geometry](docs/asset-catalog.md) when maintaining the skill.
+  Verify instructions against the implementation; keep any required user guidance
+  inside the distributed skill or its bundled references.
+
 ## Repository map
 
 - `src/cli.ts` defines the `storeshot` command and its options.
@@ -51,8 +69,8 @@ Use Node.js 22.12 or newer and npm. Keep `package-lock.json` synchronized with
 - Avoid new production dependencies when a small Node or browser API is enough.
 - Never commit generated `dist/`, `node_modules/`, or files inside the local
   `playground/` project. The root `mockup-bundles/` directory is also an ignored
-  local archive and must not be committed; distributable built-in bundles live
-  under `src/ui/public/mockup-bundles/`. Keep `playground/.gitkeep` so fresh
+  local archive and must not be committed; shipped assets and metadata live
+  under `catalog/`. Run `npm run check:catalog` when editing them. Keep `playground/.gitkeep` so fresh
   checkouts have the expected development target.
 
 ## Day-to-day development workflow
@@ -129,7 +147,7 @@ Examples:
 ```text
 fix(server): reject paths outside the project
 feat(editor): add Android screenshot sets
-docs: explain custom mockup bundles
+docs: explain catalog asset imports
 feat!: replace the project document schema
 ```
 

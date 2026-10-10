@@ -103,9 +103,10 @@ function validateDependencyLicenses() {
   }
 
   const requiredAssetLicenses = [
-    "src/ui/public/artwork/tabler/LICENSE",
+    "catalog/licenses/tabler.txt",
+    "catalog/licenses/cc0-laurels.txt",
     "src/ui/public/licenses/geist-OFL-1.1.txt",
-    "src/ui/public/mockup-bundles/frameup-free/LICENSE",
+    "catalog/licenses/frameup-free.txt",
   ]
   const missingAssetLicenses = requiredAssetLicenses.filter(
     (filePath) => !fs.existsSync(path.join(repositoryRoot, filePath)),

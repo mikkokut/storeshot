@@ -15,17 +15,8 @@ import {
 } from "node:fs/promises"
 import path from "node:path"
 
-import {
-  MOCKUP_BUNDLE_FILENAME,
-  bundleAssetPaths,
-  emptyDeviceMockupCatalog,
-  isSafeBundlePath,
-  mergeDeviceMockupCatalogs,
-  parseMockupBundleManifest,
-  resolveMockupBundle,
-  type DeviceMockupCatalog,
-  type MockupBundleManifest,
-} from "./device-mockups.js"
+import { assetChecksum, scanLocalAssetFiles } from "./asset-catalog.js"
+import { parseAssetImports, parseCatalogSnapshot, safeAssetPath, type AssetImport, type CatalogAsset } from "./asset-catalog-types.js"
 import {
   detectScreenshotDeviceType,
   readImageMetadata,
@@ -35,8 +26,7 @@ import {
   defaultConfig,
   inferSpec,
   acceptsSize,
-  specsForPage,
-  creationSpecsForPage,
+  CREATION_SPECS,
   creationSize,
 } from "./app-store.js"
 import { parseStoreShotConfig, identifier } from "./app-store-config.js"
@@ -66,19 +56,8 @@ export const CONFIG_FILENAME = "storeshot.json"
 export const ASSETS_DIRECTORY = "assets"
 export const SETS_DIRECTORY = "sets"
 export const ASSET_METADATA_FILENAME = ".storeshot-metadata.json"
-export const MOCKUP_BUNDLES_DIRECTORY = "mockup-bundles"
-const MOCKUP_IMPORTS_DIRECTORY = ".imports"
-
+export const ASSET_IMPORTS_FILENAME = ".storeshot-imports.json"
 const supportedExtensions = new Set([".png", ".jpg", ".jpeg", ".webp", ".svg"])
-const supportedMockupBundleExtensions = new Set([
-  ".jpeg",
-  ".jpg",
-  ".md",
-  ".png",
-  ".svg",
-  ".txt",
-  ".webp",
-])
 const safeIdentifierPattern = /^[a-z0-9][a-z0-9-]*$/
 
 export class ProjectStore {
@@ -86,8 +65,6 @@ export class ProjectStore {
   readonly configPath: string
   readonly assetsPath: string
   readonly setsPath: string
-  readonly mockupBundlesPath: string
-  readonly mockupImportsPath: string
   private readonly operations = new Map<string, Promise<void>>()
   private readonly assetHashes = new Map<
     string,
@@ -99,11 +76,7 @@ export class ProjectStore {
     this.configPath = path.join(this.root, CONFIG_FILENAME)
     this.assetsPath = path.join(this.root, ASSETS_DIRECTORY)
     this.setsPath = path.join(this.root, SETS_DIRECTORY)
-    this.mockupBundlesPath = path.join(this.root, MOCKUP_BUNDLES_DIRECTORY)
-    this.mockupImportsPath = path.join(
-      this.mockupBundlesPath,
-      MOCKUP_IMPORTS_DIRECTORY,
-    )
+
   }
 
   async initialize(): Promise<void> {
@@ -111,12 +84,6 @@ export class ProjectStore {
     await this.assertManagedDirectory(this.root)
     await this.ensureManagedDirectory(this.assetsPath, this.root)
     await this.ensureManagedDirectory(this.setsPath, this.root)
-    await this.ensureManagedDirectory(this.mockupBundlesPath, this.root)
-    await rm(this.mockupImportsPath, { recursive: true, force: true })
-    await this.ensureManagedDirectory(
-      this.mockupImportsPath,
-      this.mockupBundlesPath,
-    )
     for (const category of ASSET_CATEGORIES) {
       await this.ensureManagedDirectory(
         path.join(this.assetsPath, category),
@@ -171,6 +138,12 @@ export class ProjectStore {
   async localizePage(pageId: string, input: LocalizePageInput): Promise<void> {
     return this.runExclusive("workspace-mutation", () =>
       this.localizePageUnlocked(pageId, input),
+    )
+  }
+
+  async removePageLanguage(pageId: string, locale: string): Promise<void> {
+    return this.runExclusive("workspace-mutation", () =>
+      this.removePageLanguageUnlocked(pageId, locale),
     )
   }
 
@@ -322,7 +295,7 @@ export class ProjectStore {
 
     const safeName = path.basename(filename)
     const extension = path.extname(safeName).toLowerCase()
-    if (safeName !== filename || !supportedExtensions.has(extension)) {
+    if (safeName !== filename || !safeAssetPath(filename) || !supportedExtensions.has(extension)) {
       throw new Error("Unsupported asset filename")
     }
 
@@ -334,6 +307,7 @@ export class ProjectStore {
     filename: string,
   ): Promise<string> {
     const target = this.resolveAsset(category, filename)
+    await this.assertManagedDirectory(path.dirname(target))
     await this.assertRegularFile(target)
     const resolved = await realpath(target)
     await this.assertContained(resolved, path.join(this.assetsPath, category))
@@ -341,14 +315,21 @@ export class ProjectStore {
   }
 
   async listSets(): Promise<ScreenshotSet[]> {
+    await this.assertManagedDirectory(this.setsPath)
     const entries = await readdir(this.setsPath, { withFileTypes: true })
-    const sets = await Promise.all(
-      entries
-        .filter(
-          (entry) => entry.isFile() && path.extname(entry.name) === ".json",
-        )
-        .map(async (entry) => this.readSet(entry.name.slice(0, -5))),
-    )
+    const sets: ScreenshotSet[] = []
+    for (const entry of entries) {
+      if (entry.name.startsWith(".")) continue
+      if (entry.isSymbolicLink()) throw new Error("Set directories cannot be symbolic links")
+      if (!entry.isDirectory()) continue
+      try {
+        await lstat(this.resolveSet(entry.name))
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue
+        throw error
+      }
+      sets.push(await this.readSet(entry.name))
+    }
     return sets.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
   }
 
@@ -356,16 +337,19 @@ export class ProjectStore {
     input: CreateSetInput,
   ): Promise<ScreenshotSet> {
     const value = parseCreateSetInput(input)
+    const config = await this.readConfig()
+    const pageId = value.pageId ?? config.pages[0]?.id
+    if (!pageId) throw new Error("Create a product page before adding artwork")
     const now = new Date().toISOString()
     const id = `${slugify(value.name)}-${randomUUID().slice(0, 8)}`
-    const areaId = `area-${randomUUID()}`
+    const areaId = randomUUID().slice(0, 8)
     const set: ScreenshotSet = {
       version: 3,
       id,
       name: value.name,
       locale: value.locale,
       device: value.device,
-      pageId: value.pageId ?? "default",
+      pageId,
       specId:
         value.specId ?? inferSpec(value.width, value.height, value.device),
       canvas: { width: value.width, height: value.height },
@@ -393,20 +377,8 @@ export class ProjectStore {
 
   private async duplicateSetUnlocked(id: string): Promise<ScreenshotSet> {
     const source = await this.readSet(id)
-    if (
-      !specsForPage({
-        id: "copy",
-        name: "Copy",
-        kind: "custom",
-        localizations: [source.locale],
-      }).some((spec) => spec.id === source.specId)
-    )
-      throw new Error(
-        "Only compatible iPhone, iPad and creative collections can be copied to a custom product page",
-      )
     const page = await this.createPageUnlocked({
       name: `${source.name} copy`,
-      kind: "custom",
     })
     try {
       return await this.cloneCollection(
@@ -439,12 +411,18 @@ export class ProjectStore {
       createdAt: now,
       updatedAt: now,
     }
-    await this.ensurePageLocale(pageId, locale)
-    await this.copySetResources(
-      path.join(this.setsPath, source.id),
-      path.join(this.setsPath, copy.id),
-    )
-    return this.writeSetUnlocked(copy.id, copy)
+    try {
+      await this.validateDestination(copy, true)
+      await this.ensurePageLocale(pageId, locale)
+      await this.copySetResources(
+        path.join(this.setsPath, source.id),
+        path.join(this.setsPath, copy.id),
+      )
+      return await this.writeSetUnlocked(copy.id, copy)
+    } catch (error) {
+      await this.discardNewCollection(copy.id)
+      throw error
+    }
   }
 
   private async ensurePageLocale(
@@ -478,8 +456,6 @@ export class ProjectStore {
         throw new Error("Unknown App Store specification")
       return // Preserve imported artwork without claiming it is upload-ready.
     }
-    if (!specsForPage(page).includes(spec))
-      throw new Error("This destination is not enabled for the product page")
     if (!acceptsSize(spec, set.canvas.width, set.canvas.height))
       throw new Error("Unsupported App Store asset dimensions")
     if (set.areas.length > spec.maxCount)
@@ -514,33 +490,25 @@ export class ProjectStore {
     input: CreatePageInput,
   ): Promise<ProductPage> {
     const config = await this.readConfig()
-    if (input.kind !== "custom" && input.kind !== "treatment")
-      throw new Error("Choose a custom page or optimization treatment")
     const name = readString(input.name, "Page name")
     const source = input.sourcePageId
       ? config.pages.find((page) => page.id === input.sourcePageId)
       : undefined
     if (input.sourcePageId && !source) throw new Error("Unknown source page")
-    let testId = input.testId
-    if (input.kind === "treatment" && !testId) {
-      const testName = readString(input.testName, "Test name")
-      testId = `test-${randomUUID().slice(0, 8)}`
-      config.tests.push({ id: testId, name: testName })
-    }
+    const store = input.store ?? source?.store ?? "app-store"
+    if (store !== "app-store")
+      throw new Error("Only App Store product pages are available; Google Play is coming later")
     const page: ProductPage = {
-      id: `${input.kind}-${randomUUID().slice(0, 8)}`,
+      id: `page-${randomUUID().slice(0, 8)}`,
       name,
-      kind: input.kind,
+      store,
       localizations: [...(source?.localizations ?? [])],
-      ...(input.kind === "treatment" ? { testId } : {}),
     }
     config.pages.push(page)
     parseStoreShotConfig(config)
     const collections = source
       ? (await this.listSets()).filter(
-          (set) =>
-            set.pageId === source.id &&
-            specsForPage(page).some((spec) => spec.id === set.specId),
+          (set) => set.pageId === source.id,
         )
       : []
     const previous = await this.readConfig()
@@ -552,7 +520,7 @@ export class ProjectStore {
           await this.cloneCollection(collection, page.id, collection.locale),
         )
     } catch (error) {
-      for (const copy of copies) await this.deleteSetUnlocked(copy.id)
+      for (const copy of copies) await this.discardNewCollection(copy.id)
       await this.writeConfigUnlocked(previous)
       throw error
     }
@@ -585,7 +553,7 @@ export class ProjectStore {
           await this.cloneCollection(collection, pageId, input.locale),
         )
     } catch (error) {
-      for (const copy of copies) await this.deleteSetUnlocked(copy.id)
+      for (const copy of copies) await this.discardNewCollection(copy.id)
       await this.writeConfigUnlocked(config)
       throw error
     }
@@ -602,25 +570,38 @@ export class ProjectStore {
     await this.writeConfigUnlocked(config)
   }
 
+  private async removePageLanguageUnlocked(pageId: string, locale: string): Promise<void> {
+    const config = await this.readConfig()
+    const page = config.pages.find((page) => page.id === pageId)
+    if (!page) throw new Error("Unknown product page")
+    if (!page.localizations.includes(locale)) throw new Error("Unknown page language")
+    const sets = (await this.listSets()).filter(
+      (set) => set.pageId === pageId && set.locale === locale,
+    )
+    page.localizations = page.localizations.filter((code) => code !== locale)
+    try {
+      for (const set of sets) await this.deleteSetUnlocked(set.id)
+      await this.writeConfigUnlocked(config)
+    } catch (error) {
+      for (const set of sets) await this.restoreSet(set)
+      throw error
+    }
+  }
+
   private async deletePageUnlocked(pageId: string): Promise<void> {
     const config = await this.readConfig()
     const page = config.pages.find((page) => page.id === pageId)
     if (!page) throw new Error("Unknown product page")
-    if (page.kind === "default")
-      throw new Error("The default product page cannot be removed")
     const sets = (await this.listSets()).filter((set) => set.pageId === pageId)
     const next = {
       ...config,
       pages: config.pages.filter((page) => page.id !== pageId),
     }
-    next.tests = config.tests.filter((test) =>
-      next.pages.some((page) => page.testId === test.id),
-    )
     try {
       for (const set of sets) await this.deleteSetUnlocked(set.id)
       await this.writeConfigUnlocked(next)
     } catch (error) {
-      for (const set of sets) await this.writeMigratedSet(set)
+      for (const set of sets) await this.restoreSet(set)
       throw error
     }
   }
@@ -654,13 +635,13 @@ export class ProjectStore {
       ...sourceAssets.map(sourceDevice),
     ])
     if (
-      !creationSpecsForPage(page).some(
+      !CREATION_SPECS.some(
         (spec) => spec.device !== "creative" && devices.has(spec.device),
       )
     )
       devices.add("iphone")
     try {
-      for (const spec of creationSpecsForPage(page).filter(
+      for (const spec of CREATION_SPECS.filter(
         (spec) =>
           spec.device !== "creative" &&
           devices.has(spec.device) &&
@@ -691,7 +672,7 @@ export class ProjectStore {
           .slice(0, spec.maxCount)
         if (captures.length) {
           collection.areas = captures.map((asset) => ({
-            id: `area-${randomUUID()}`,
+            id: randomUUID().slice(0, 8),
             name: asset.name.replace(/\.[^.]+$/, ""),
             html: createArtboardHtml(width, height, {
               locale,
@@ -703,7 +684,8 @@ export class ProjectStore {
         }
       }
     } catch (error) {
-      for (const set of created) await this.deleteSetUnlocked(set.id)
+      for (const set of created) await this.discardNewCollection(set.id)
+      await this.writeConfigUnlocked(config)
       throw error
     }
     return created
@@ -719,6 +701,8 @@ export class ProjectStore {
       if (entry.isSymbolicLink())
         throw new Error("Set resources cannot be symbolic links")
       if (entry.name.startsWith(".")) continue
+      // Publish the copied collection only after its resources and metadata are complete.
+      if (entry.name === "index.json" && path.dirname(source) === this.setsPath) continue
       const from = path.join(source, entry.name)
       const to = path.join(target, entry.name)
       if (entry.isDirectory()) await this.copySetResources(from, to)
@@ -783,262 +767,72 @@ export class ProjectStore {
 
   private async deleteSetUnlocked(id: string): Promise<void> {
     const target = this.resolveSet(id)
+    await this.assertManagedDirectory(path.dirname(target))
     await this.assertRegularFile(target)
     await unlink(target)
   }
 
-  async readMockupBundleManifest(id: string): Promise<MockupBundleManifest> {
-    if (!safeIdentifierPattern.test(id))
-      throw new Error("Invalid mockup bundle id")
-    const directory = path.join(this.mockupBundlesPath, id)
-    const manifest = parseMockupBundleManifest(
-      JSON.parse(
-        await this.readManagedFile(
-          path.join(directory, MOCKUP_BUNDLE_FILENAME),
-          directory,
-          "utf8",
-        ),
-      ),
-    )
-    if (manifest.id !== id)
-      throw new Error("Mockup bundle folder does not match manifest id")
-    return manifest
+  /** Rollbacks discard only newly created folders; user deletions retain artwork. */
+  private async discardNewCollection(id: string): Promise<void> {
+    const target = this.resolveSet(id)
+    await this.assertManagedDirectory(this.setsPath)
+    await rm(path.dirname(target), { recursive: true, force: true })
   }
 
-  async listMockupCatalog(): Promise<DeviceMockupCatalog> {
-    const entries = await readdir(this.mockupBundlesPath, {
-      withFileTypes: true,
-    })
-    const catalogs = (
-      await Promise.all(
-        entries
-          .filter(
-            (entry) =>
-              entry.isDirectory() && safeIdentifierPattern.test(entry.name),
-          )
-          .map(async (entry) => {
-            const manifestPath = path.join(
-              this.mockupBundlesPath,
-              entry.name,
-              MOCKUP_BUNDLE_FILENAME,
-            )
-            let contents: string
-            try {
-              contents = await this.readManagedFile(
-                manifestPath,
-                path.dirname(manifestPath),
-                "utf8",
-              )
-            } catch (error) {
-              if ((error as NodeJS.ErrnoException).code === "ENOENT")
-                return undefined
-              throw error
-            }
-            const manifest = parseMockupBundleManifest(JSON.parse(contents))
-            if (manifest.id !== entry.name)
-              throw new Error(
-                `Mockup bundle folder ${entry.name} does not match manifest id ${manifest.id}`,
-              )
-            return resolveMockupBundle(
-              manifest,
-              `/api/mockup-bundle-files/${encodeURIComponent(manifest.id)}/`,
-              "project",
-            )
-          }),
-      )
-    ).filter((catalog): catalog is DeviceMockupCatalog => catalog !== undefined)
-    return catalogs.length > 0
-      ? mergeDeviceMockupCatalogs(...catalogs)
-      : emptyDeviceMockupCatalog()
+  async readAssetImports(): Promise<AssetImport[]> {
+    try {
+      return parseAssetImports(JSON.parse(await this.readManagedFile(path.join(this.assetsPath, ASSET_IMPORTS_FILENAME), this.assetsPath, "utf8")))
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return []
+      throw error
+    }
   }
 
-  async writeMockupBundleManifest(
-    bundleId: string,
-    input: unknown,
-  ): Promise<MockupBundleManifest> {
-    if (!safeIdentifierPattern.test(bundleId))
-      throw new Error("Unsupported mockup bundle id")
-    if (bundleId === "frameup-free")
-      throw new Error(
-        "frameup-free is reserved for StoreShot's built-in bundle",
-      )
-    const manifest = parseMockupBundleManifest(input)
-    if (manifest.id !== bundleId)
-      throw new Error("Mockup bundle id cannot be changed")
-    const bundleDirectory = path.join(this.mockupBundlesPath, bundleId)
-    await this.ensureManagedDirectory(bundleDirectory, this.mockupBundlesPath)
-    await Promise.all(
-      bundleAssetPaths(manifest).map(async (relativePath) => {
-        await this.resolveExistingMockupBundleFile(bundleId, relativePath)
-      }),
-    )
-    const manifestPath = path.join(bundleDirectory, MOCKUP_BUNDLE_FILENAME)
-    await this.runExclusive(manifestPath, async () =>
-      writeJson(manifestPath, manifest),
-    )
-    return manifest
-  }
-
-  async writeMockupBundleFile(
-    bundleId: string,
-    relativePath: string,
+  async importCatalogAsset(
+    input: CatalogAsset,
     contents: Buffer,
-  ): Promise<void> {
-    if (bundleId === "frameup-free")
-      throw new Error(
-        "frameup-free is reserved for StoreShot's built-in bundle",
-      )
-    const target = this.resolveMockupBundleFile(bundleId, relativePath)
-    if (isImageFile(relativePath)) assertValidImage(relativePath, contents)
-    await this.ensureManagedDirectory(
-      path.dirname(target),
-      this.mockupBundlesPath,
-    )
-    await this.assertSafeWriteTarget(target, path.dirname(target))
-    await this.runExclusive(target, async () =>
-      writeFileAtomically(target, contents),
-    )
-  }
-
-  async writeMockupBundleImportFile(
-    importId: string,
-    bundleId: string,
-    relativePath: string,
-    contents: Buffer,
-  ): Promise<void> {
-    this.assertMockupImportId(importId)
-    this.resolveMockupBundleFile(bundleId, relativePath)
-    if (isImageFile(relativePath)) assertValidImage(relativePath, contents)
-    const bundleDirectory = path.join(
-      this.mockupImportsPath,
-      importId,
-      bundleId,
-    )
-    const target = path.resolve(bundleDirectory, relativePath)
-    if (!target.startsWith(`${bundleDirectory}${path.sep}`))
-      throw new Error("Mockup bundle file is outside the import")
-    await this.ensureManagedDirectory(
-      path.dirname(target),
-      this.mockupImportsPath,
-    )
-    await this.assertSafeWriteTarget(target, path.dirname(target))
-    await this.runExclusive(target, async () =>
-      writeFileAtomically(target, contents),
-    )
-  }
-
-  async commitMockupBundleImport(
-    importId: string,
-    bundleId: string,
-    input: unknown,
-  ): Promise<MockupBundleManifest> {
-    this.assertMockupImportId(importId)
-    if (!safeIdentifierPattern.test(bundleId))
-      throw new Error("Unsupported mockup bundle id")
-    if (bundleId === "frameup-free")
-      throw new Error(
-        "frameup-free is reserved for StoreShot's built-in bundle",
-      )
-    const manifest = parseMockupBundleManifest(input)
-    if (manifest.id !== bundleId)
-      throw new Error("Mockup bundle id cannot be changed")
-
-    const importDirectory = path.join(this.mockupImportsPath, importId)
-    const stagedBundle = path.join(importDirectory, bundleId)
-    await this.assertManagedDirectory(stagedBundle)
-    await Promise.all(
-      bundleAssetPaths(manifest).map(async (relativePath) => {
-        const target = path.resolve(stagedBundle, relativePath)
-        if (!target.startsWith(`${stagedBundle}${path.sep}`))
-          throw new Error("Mockup bundle file is outside the import")
-        await this.readManagedFile(target, stagedBundle)
-      }),
-    )
-    await writeJson(path.join(stagedBundle, MOCKUP_BUNDLE_FILENAME), manifest)
-
-    const finalBundle = path.join(this.mockupBundlesPath, bundleId)
-    const backupBundle = path.join(
-      this.mockupBundlesPath,
-      `.${bundleId}.${randomUUID()}.backup`,
-    )
-    await this.runExclusive(`mockup-bundle:${bundleId}`, async () => {
-      let hasBackup = false
+    license: Buffer,
+    options: { replace?: boolean } = {},
+  ): Promise<{ id: string; path: string; checksum: string; reused: boolean; replaced: boolean; licensePath: string }> {
+    const asset = parseCatalogSnapshot(input)
+    if (assetChecksum(contents) !== asset.checksum) throw new Error(`Catalog checksum changed: ${asset.id}`)
+    assertValidImage(asset.file, contents)
+    if (!license.length) throw new Error("An asset license is required")
+    return this.runExclusive("asset-catalog", async () => {
+      const imports = await this.readAssetImports()
+      const files = await scanLocalAssetFiles(this.assetsPath)
+      const match = files.find(file => file.checksum === asset.checksum)
+      const id = match?.path ?? `other/${asset.id}${path.extname(asset.file).toLowerCase()}`
+      const target = path.join(this.assetsPath, id)
+      const metadataTarget = path.join(this.assetsPath, ASSET_IMPORTS_FILENAME)
+      await this.assertSafeWriteTarget(metadataTarget, this.assetsPath)
+      const old = files.find(file => file.path === id)
+      if (!match && old && !options.replace) throw new Error(`${id} has different contents; pass --replace to overwrite it`)
+      const licenseDirectory = path.join(this.assetsPath, ".licenses")
+      await this.ensureManagedDirectory(licenseDirectory, this.assetsPath)
+      const licensePath = `.licenses/${hash(license)}.txt`
+      const licenseTarget = path.join(this.assetsPath, licensePath)
+      await this.assertSafeWriteTarget(licenseTarget, licenseDirectory)
+      if (!match) await this.assertSafeWriteTarget(target, path.dirname(target))
+      const previous = imports.find(entry => entry.asset.id === asset.id && entry.asset.checksum === asset.checksum)
+      const receipt: AssetImport = { asset, paths: [...new Set([...(previous?.paths ?? []), id])], licensePath }
+      const next = imports.filter(entry => entry !== previous)
+      next.push(receipt)
+      await writeFileAtomically(licenseTarget, license)
+      const backup = !match && old ? await this.readManagedFile(target, path.dirname(target)) : undefined
+      if (!match) await writeFileAtomically(target, contents)
       try {
-        const metadata = await lstat(finalBundle)
-        if (!metadata.isDirectory() || metadata.isSymbolicLink())
-          throw new Error("Mockup bundle must be a regular directory")
-        await rename(finalBundle, backupBundle)
-        hasBackup = true
+        await writeJson(metadataTarget, { version: 1, imports: next })
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
-      }
-
-      try {
-        await rename(stagedBundle, finalBundle)
-      } catch (error) {
-        if (hasBackup) await rename(backupBundle, finalBundle)
+        if (!match) {
+          if (backup) await writeFileAtomically(target, backup)
+          else await unlink(target)
+        }
         throw error
       }
-      if (hasBackup)
-        await rm(backupBundle, { recursive: true, force: true }).catch(
-          () => undefined,
-        )
-      await rm(importDirectory, { recursive: true, force: true }).catch(
-        () => undefined,
-      )
+      this.assetHashes.delete(target)
+      return { id: asset.id, path: `assets/${id}`, checksum: asset.checksum, reused: !!match, replaced: !match && !!old, licensePath: `assets/${licensePath}` }
     })
-    return manifest
-  }
-
-  async discardMockupBundleImport(importId: string): Promise<void> {
-    this.assertMockupImportId(importId)
-    const target = path.join(this.mockupImportsPath, importId)
-    const relative = path.relative(this.mockupImportsPath, target)
-    if (relative.startsWith("..") || path.isAbsolute(relative))
-      throw new Error("Mockup import is outside the project boundary")
-    await rm(target, { recursive: true, force: true })
-  }
-
-  resolveMockupBundleFile(bundleId: string, relativePath: string): string {
-    if (!safeIdentifierPattern.test(bundleId))
-      throw new Error("Unsupported mockup bundle id")
-    if (
-      !isSafeBundlePath(relativePath) ||
-      relativePath === MOCKUP_BUNDLE_FILENAME
-    ) {
-      throw new Error("Unsupported mockup bundle file path")
-    }
-    const extension = path.extname(relativePath).toLowerCase()
-    if (
-      path.basename(relativePath) !== "LICENSE" &&
-      !supportedMockupBundleExtensions.has(extension)
-    ) {
-      throw new Error("Unsupported mockup bundle file type")
-    }
-    const bundleRoot = path.join(this.mockupBundlesPath, bundleId)
-    const target = path.resolve(bundleRoot, relativePath)
-    if (!target.startsWith(`${bundleRoot}${path.sep}`))
-      throw new Error("Mockup bundle file is outside the bundle")
-    return target
-  }
-
-  async resolveExistingMockupBundleFile(
-    bundleId: string,
-    relativePath: string,
-  ): Promise<string> {
-    const bundleRoot = await realpath(
-      path.join(this.mockupBundlesPath, bundleId),
-    )
-    await this.assertContained(bundleRoot, this.mockupBundlesPath)
-    await this.assertRegularFile(
-      this.resolveMockupBundleFile(bundleId, relativePath),
-    )
-    const target = await realpath(
-      this.resolveMockupBundleFile(bundleId, relativePath),
-    )
-    if (!target.startsWith(`${bundleRoot}${path.sep}`))
-      throw new Error("Mockup bundle file is outside the bundle")
-    return target
   }
 
   private async listAssetsInCategory(
@@ -1075,6 +869,7 @@ export class ProjectStore {
           name: file.name,
           url: `/api/assets/${category}/${encodeURIComponent(file.name)}?v=${Math.trunc(metadata.mtimeMs)}`,
           size: metadata.size,
+          checksum: assetChecksum(contents),
           modifiedAt: metadata.mtime.toISOString(),
           ...(dimensions ?? {}),
           ...(detectedDeviceType
@@ -1152,58 +947,73 @@ export class ProjectStore {
     return value
   }
 
+  /** Resolve a stable area ID to its optional descriptive filename suffix. */
+  async resolveAreaHtmlFile(setId: string, areaId: string): Promise<string> {
+    this.resolveSet(setId)
+    await this.assertManagedDirectory(this.setsPath)
+    if (!safeIdentifierPattern.test(areaId) || areaId === "index") throw new Error("Invalid area id")
+    const directory = path.join(this.setsPath, setId)
+    await this.assertManagedDirectory(directory)
+    const manifest = JSON.parse(await this.readManagedFile(this.resolveSet(setId), directory, "utf8"))
+    const ids = Array.isArray(manifest?.areas) ? manifest.areas.filter((id: unknown): id is string => typeof id === "string") : []
+    const stem = await this.areaFileStem(directory, areaId, ids)
+    return path.join(directory, `${stem}.html`)
+  }
+
+  private async areaFileStem(directory: string, id: string, ids: string[]): Promise<string> {
+    const entries = await readdir(directory)
+    const stems = new Set(entries.flatMap((filename) => {
+      const extension = path.extname(filename)
+      if (extension !== ".json" && extension !== ".html") return []
+      const stem = filename.slice(0, -extension.length)
+      // A longer area ID can share this prefix; its files are not descriptive suffixes.
+      if (ids.some(other => other !== id && other.startsWith(`${id}-`) && (stem === other || stem.startsWith(`${other}-`)))) return []
+      if (stem === id || (stem.startsWith(`${id}-`) && safeIdentifierPattern.test(stem))) return [stem]
+      return []
+    }))
+    if (stems.size > 1) throw new Error(`Ambiguous filenames for area ${id}; JSON and HTML must use one matching stem`)
+    return [...stems][0] ?? id
+  }
+
   async readSet(id: string): Promise<ScreenshotSet> {
-    return this.readManifestSet(id, false)
-  }
-
-  async readLegacyHtmlSet(id: string): Promise<ScreenshotSet> {
-    return this.readManifestSet(id, true)
-  }
-
-  private async readManifestSet(
-    id: string,
-    legacy: boolean,
-  ): Promise<ScreenshotSet> {
+    const directory = path.join(this.setsPath, id)
     const target = this.resolveSet(id)
+    if (!safeIdentifierPattern.test(id)) throw new Error("Unsupported set id")
+    await this.assertManagedDirectory(this.setsPath)
+    await this.assertManagedDirectory(directory)
     const manifest = JSON.parse(
-      await this.readManagedFile(target, this.setsPath, "utf8"),
+      await this.readManagedFile(target, directory, "utf8"),
     )
-    if (manifest.version !== (legacy ? 2 : 3))
-      throw new Error("Unsupported set file version; run storeshot migrate")
-    if (manifest.id !== id)
-      throw new Error("Set filename does not match its id")
+    if (manifest.version !== 3)
+      throw new Error("Unsupported set file version")
     if (!Array.isArray(manifest.areas))
       throw new Error("Set areas must be an array")
-    await this.assertManagedDirectory(path.join(this.setsPath, id))
+    const areaIds = manifest.areas.map((entry: unknown): string => {
+      if (typeof entry !== "string" || !safeIdentifierPattern.test(entry) || entry === "index")
+        throw new Error("Invalid area id")
+      return entry
+    })
     const areas = await Promise.all(
-      manifest.areas.map(
-        async (area: { id: string; name: string; file: string }) => {
-          if (
-            !safeIdentifierPattern.test(area.id) ||
-            area.file !== `${id}/${area.id}.html`
-          )
-            throw new Error("Invalid artboard file path")
-          const html = await this.readManagedFile(
-            path.join(this.setsPath, area.file),
-            path.join(this.setsPath, id),
-            "utf8",
-          )
-          return { id: area.id, name: area.name, html }
-        },
-      ),
+      areaIds.map(async (areaId: string) => {
+        const stem = await this.areaFileStem(directory, areaId, areaIds)
+        const metadata = JSON.parse(
+          await this.readManagedFile(path.join(directory, `${stem}.json`), directory, "utf8"),
+        )
+        if (!isRecord(metadata)) throw new Error("Invalid artboard metadata")
+        const html = await this.readManagedFile(path.join(directory, `${stem}.html`), directory, "utf8")
+        return { id: areaId, name: metadata.name, html }
+      }),
     )
     const result = parseScreenshotSet({
       ...manifest,
-      ...(legacy
-        ? { version: 3, pageId: "default", specId: "unassigned" }
-        : {}),
+      id,
       areas,
     })
     return result
   }
 
-  /** Migration preflights the entire project before writing mixed-version manifests. */
-  async writeMigratedSet(set: ScreenshotSet): Promise<void> {
+  /** Restore deleted collections if a page or language update fails. */
+  private async restoreSet(set: ScreenshotSet): Promise<void> {
     const value = parseScreenshotSet(set)
     const target = this.resolveSet(value.id)
     await this.assertSafeWriteTarget(target, this.setsPath)
@@ -1217,16 +1027,15 @@ export class ProjectStore {
     const directory = path.join(this.setsPath, value.id)
     await this.ensureManagedDirectory(directory, this.setsPath)
     // Validate all targets before writing any content. Removed artboards remain recoverable on disk.
-    for (const area of value.areas)
-      await this.assertSafeWriteTarget(
-        path.join(directory, `${area.id}.html`),
-        directory,
-      )
-    for (const area of value.areas)
-      await writeFileAtomically(
-        path.join(directory, `${area.id}.html`),
-        area.html,
-      )
+    await this.assertSafeWriteTarget(target, directory)
+    const ids = value.areas.map(area => area.id)
+    const files = await Promise.all(value.areas.map(async (area) => ({ area, stem: await this.areaFileStem(directory, area.id, ids) })))
+    for (const { stem } of files) {
+      await this.assertSafeWriteTarget(path.join(directory, `${stem}.html`), directory)
+      await this.assertSafeWriteTarget(path.join(directory, `${stem}.json`), directory)
+    }
+    for (const { area, stem } of files)
+      await writeFileAtomically(path.join(directory, `${stem}.html`), area.html)
     await this.persistManifest(target, value)
   }
 
@@ -1234,14 +1043,17 @@ export class ProjectStore {
     target: string,
     value: ScreenshotSet,
   ): Promise<void> {
-    await writeJson(target, {
-      ...value,
-      areas: value.areas.map(({ id, name }) => ({
-        id,
-        name,
-        file: `${value.id}/${id}.html`,
-      })),
-    })
+    const directory = path.join(this.setsPath, value.id)
+    // Metadata-only edits preserve hand-edited HTML and descriptive filenames.
+    const ids = value.areas.map(area => area.id)
+    const files = await Promise.all(value.areas.map(async (area) => ({ area, stem: await this.areaFileStem(directory, area.id, ids) })))
+    for (const { stem } of files)
+      await this.assertSafeWriteTarget(path.join(directory, `${stem}.json`), directory)
+    await this.assertSafeWriteTarget(target, directory)
+    for (const { area, stem } of files)
+      await writeJson(path.join(directory, `${stem}.json`), { name: area.name })
+    const { id: _id, areas, ...metadata } = value
+    await writeJson(target, { ...metadata, areas: areas.map((area) => area.id) })
   }
 
   private async runExclusive<T>(
@@ -1263,11 +1075,18 @@ export class ProjectStore {
   }
 
   private async assertManagedDirectory(directory: string): Promise<void> {
-    const metadata = await lstat(directory)
-    if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
-      throw new Error(
-        `${path.relative(this.root, directory) || "."} must be a regular project directory`,
-      )
+    const relative = path.relative(this.root, directory)
+    if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+      throw new Error("Directory is outside the project boundary")
+    let current = this.root
+    for (const segment of ["", ...relative.split(path.sep).filter(Boolean)]) {
+      current = path.join(current, segment)
+      const metadata = await lstat(current)
+      if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
+        throw new Error(
+          `${path.relative(this.root, current) || "."} must be a regular project directory`,
+        )
+      }
     }
     await this.assertContained(await realpath(directory), this.root, true)
   }
@@ -1303,6 +1122,16 @@ export class ProjectStore {
     const relative = path.relative(boundary, target)
     if (relative.startsWith("..") || path.isAbsolute(relative))
       throw new Error("File is outside the project boundary")
+    let parent = boundary
+    for (const segment of path.dirname(relative).split(path.sep).filter((part) => part !== ".")) {
+      parent = path.join(parent, segment)
+      try {
+        await this.assertManagedDirectory(parent)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") break
+        throw error
+      }
+    }
     try {
       const metadata = await lstat(target)
       if (metadata.isSymbolicLink() || !metadata.isFile())
@@ -1352,14 +1181,9 @@ export class ProjectStore {
     throw new Error("File is outside the project boundary")
   }
 
-  private assertMockupImportId(importId: string): void {
-    if (!safeIdentifierPattern.test(importId))
-      throw new Error("Unsupported mockup import id")
-  }
-
   private resolveSet(id: string): string {
     if (!safeIdentifierPattern.test(id)) throw new Error("Unsupported set id")
-    return path.join(this.setsPath, `${id}.json`)
+    return path.join(this.setsPath, id, "index.json")
   }
 }
 
@@ -1410,7 +1234,7 @@ function parseSetMetadataInput(value: unknown): UpdateSetMetadataInput {
 export function parseScreenshotSet(value: unknown): ScreenshotSet {
   if (!isRecord(value)) throw new Error("Set file must contain an object")
   if (value.version !== 3)
-    throw new Error("Unsupported set file version; run storeshot migrate")
+    throw new Error("Unsupported set file version")
   const id = readString(value.id, "Set id")
   if (!safeIdentifierPattern.test(id)) throw new Error("Set id is invalid")
   if (!isRecord(value.canvas)) throw new Error("Set canvas is invalid")
@@ -1420,7 +1244,7 @@ export function parseScreenshotSet(value: unknown): ScreenshotSet {
   const areas = value.areas.map((area): ScreenshotArea => {
     if (!isRecord(area)) throw new Error("Invalid artboard")
     const areaId = readString(area.id, "Area id")
-    if (!safeIdentifierPattern.test(areaId) || ids.has(areaId))
+    if (!safeIdentifierPattern.test(areaId) || areaId === "index" || ids.has(areaId))
       throw new Error("Invalid or duplicate area id")
     ids.add(areaId)
     if (typeof area.html !== "string" || !area.html.trim())

@@ -1,6 +1,7 @@
 import { lstat, readFile, realpath } from "node:fs/promises"
 import path from "node:path"
 import type { IncomingMessage, ServerResponse } from "node:http"
+import { ProjectStore } from "./project-store.js"
 import { ARTBOARD_CSP } from "./html-artboard.js"
 
 const types: Record<string, string> = {
@@ -10,12 +11,17 @@ const types: Record<string, string> = {
 }
 
 export async function readArtboardResource(root: string, relative: string): Promise<{ body: Buffer; type: string }> {
-  const parts = relative.split("/")
-  if (!["sets", "assets", "mockup-bundles"].includes(parts[0]) || parts.some((part) => !part || part === "." || part === ".." || part.includes("\\") || part.startsWith("."))) {
+  let parts = relative.split("/")
+  if (!["sets", "assets"].includes(parts[0]) || parts.some((part) => !part || part === "." || part === ".." || part.includes("\\") || part.startsWith("."))) {
     throw new Error("Invalid artboard resource path")
   }
   const type = types[path.extname(relative).toLowerCase()]
   if (!type) throw new Error("Unsupported artboard resource type")
+  // Preview/export URLs use the stable area ID even after a descriptive suffix is renamed.
+  if (parts.length === 3 && parts[0] === "sets" && path.extname(parts[2]) === ".html") {
+    const filename = await new ProjectStore(root).resolveAreaHtmlFile(parts[1], parts[2].slice(0, -5))
+    parts = path.relative(root, filename).split(path.sep)
+  }
   const boundary = await realpath(root)
   let target = root
   for (const part of parts) {

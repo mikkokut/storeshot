@@ -57,7 +57,7 @@ export function PageTitle({
   }
 
   return (
-    <div className="mt-1">
+    <div className="mt-0.5">
       {editing ? (
         <form
           className="flex max-w-full items-center gap-1 text-2xl font-semibold tracking-tight"
@@ -79,7 +79,7 @@ export function PageTitle({
             aria-describedby={error ? errorId : undefined}
             autoFocus
             onFocus={(event) => event.currentTarget.select()}
-            className="h-9 w-72 text-2xl font-semibold tracking-tight md:text-2xl"
+            className="-ml-2 h-9 w-80 max-w-full px-2 text-2xl font-semibold tracking-tight md:text-2xl"
             value={name}
             disabled={busy}
             onChange={(event) => {
@@ -114,7 +114,7 @@ export function PageTitle({
             variant="ghost"
             aria-label={`Edit page title: ${page.name}`}
             title="Edit page title"
-            className="h-auto max-w-full justify-start gap-2 px-0 py-0 text-left text-2xl font-semibold tracking-tight whitespace-normal"
+            className="group/title -ml-2 h-auto min-h-9 max-w-full justify-start gap-2.5 px-2 py-0 text-left text-2xl font-semibold tracking-tight whitespace-normal shadow-none"
             onClick={() => {
               setName(page.name)
               setError(null)
@@ -122,7 +122,7 @@ export function PageTitle({
             }}
           >
             <span className="min-w-0 break-words">{page.name}</span>
-            <Pencil className="size-3.5 shrink-0 text-muted-foreground" />
+            <Pencil className="size-3.5 shrink-0 text-muted-foreground/70 transition-colors group-hover/title:text-foreground" />
           </Button>
         </h1>
       )}

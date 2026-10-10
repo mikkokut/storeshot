@@ -1,11 +1,13 @@
 import { useState } from "react"
-import { Copy, Languages, Plus, Trash2 } from "lucide-react"
+import { Copy, LoaderCircle, Plus, Trash2 } from "lucide-react"
 import { request, messageFor } from "@/api"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -23,7 +25,8 @@ import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Choice } from "@/CreateSetForm"
 import { LocalePicker } from "@/LocalePicker"
-import type { StoreShotProject, ProductPage } from "../shared"
+import { APP_STORE_LOCALES, appStoreLocale } from "@/app-store-locales"
+import type { StoreShotProject, ProductPage, PageStore } from "../shared"
 
 export function PageDialog({
   project,
@@ -36,10 +39,12 @@ export function PageDialog({
 }) {
   const [open, setOpen] = useState(false)
   const [name, setName] = useState("")
+  const [store, setStore] = useState<PageStore>("app-store")
   const [source, setSource] = useState(sourcePageId ?? "blank")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   async function create() {
+    if (busy || !name.trim()) return
     setBusy(true)
     setError(null)
     try {
@@ -50,7 +55,7 @@ export function PageDialog({
         method: "POST",
         body: JSON.stringify({
           name,
-          kind: "custom",
+          store,
           sourcePageId: source === "blank" ? undefined : source,
         }),
       })
@@ -64,15 +69,27 @@ export function PageDialog({
     }
   }
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(next) => {
+      if (busy) return
+      if (next) {
+        setName("")
+        setError(null)
+        setSource(sourcePageId ?? "blank")
+      }
+      setOpen(next)
+    }}>
       <DialogTrigger
         render={
           <Button
             variant="ghost"
-            size={sourcePageId ? "sm" : "icon-sm"}
-            aria-label={
-              sourcePageId ? "Duplicate product page" : "Add product page"
+            size={sourcePageId ? "default" : "icon-sm"}
+            className={
+              sourcePageId
+                ? undefined
+                : "text-muted-foreground hover:bg-sidebar-accent/60"
             }
+            aria-label={sourcePageId ? undefined : "Add product page"}
+            title={sourcePageId ? undefined : "Add product page"}
           />
         }
       >
@@ -85,7 +102,16 @@ export function PageDialog({
           <Plus />
         )}
       </DialogTrigger>
-      <DialogContent className="p-6">
+      <DialogContent
+        render={
+          <form
+            onSubmit={(event) => {
+              event.preventDefault()
+              void create()
+            }}
+          />
+        }
+      >
         <DialogHeader>
           <DialogTitle>New product page</DialogTitle>
           <DialogDescription>
@@ -93,40 +119,64 @@ export function PageDialog({
             existing artwork.
           </DialogDescription>
         </DialogHeader>
-        <Field>
-          <FieldLabel htmlFor="page-name">Page name</FieldLabel>
-          <Input
-            id="page-name"
-            autoFocus
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="e.g. Focus on collaboration"
+        <div className="grid gap-4">
+          <Choice
+            label="Store"
+            value={store}
+            onChange={(value) => setStore(value as PageStore)}
+            disabled={busy}
+            options={[
+              { value: "app-store", label: "App Store" },
+              { value: "play-store", label: "Google Play — coming later", disabled: true },
+            ]}
           />
-        </Field>
-        <Choice
-          label="Start with"
-          value={source}
-          onChange={setSource}
-          options={[
-            { value: "blank", label: "Blank page" },
-            ...project.config.pages.map((page) => ({
-              value: page.id,
-              label: page.name,
-            })),
-          ]}
-        />
-        <p className="text-xs text-muted-foreground">
-          Copies are independent. Only compatible iPhone, iPad and creative
-          assets are copied.
-        </p>
+          <Field>
+            <FieldLabel htmlFor="page-name">Page name</FieldLabel>
+            <Input
+              id="page-name"
+              name="name"
+              required
+              disabled={busy}
+              autoFocus
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="e.g. Focus on collaboration"
+            />
+          </Field>
+          <div className="grid gap-2">
+            <Choice
+              label="Start with"
+              value={source}
+              onChange={setSource}
+              disabled={busy}
+              options={[
+                { value: "blank", label: "Blank page" },
+                ...project.config.pages.map((page) => ({
+                  value: page.id,
+                  label: page.name,
+                })),
+              ]}
+            />
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Copies are independent. Artwork for every device and creative
+              placement is copied.
+            </p>
+          </div>
+        </div>
         {error && (
           <p role="alert" className="text-sm text-destructive">
             {error}
           </p>
         )}
-        <Button disabled={busy || !name.trim()} onClick={() => void create()}>
-          {busy ? "Creating…" : "Create product page"}
-        </Button>
+        <DialogFooter>
+          <DialogClose render={<Button type="button" variant="outline" disabled={busy} />}>
+            Cancel
+          </DialogClose>
+          <Button type="submit" disabled={busy || !name.trim()}>
+            {busy && <LoaderCircle className="animate-spin" />}
+            {busy ? "Creating…" : "Create product page"}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )
@@ -135,18 +185,24 @@ export function PageDialog({
 export function LanguageDialog({
   page,
   locale,
+  open,
+  onOpenChange,
   onChange,
 }: {
   page: ProductPage
   locale: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
   onChange: (project: StoreShotProject, locale: string) => void
 }) {
-  const [open, setOpen] = useState(false)
-  const [target, setTarget] = useState("fi")
+  const [target, setTarget] = useState(() =>
+    APP_STORE_LOCALES.find((entry) => !page.localizations.includes(entry.code))?.code ?? "",
+  )
   const [source, setSource] = useState(locale)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   async function create() {
+    if (busy || !target || page.localizations.includes(target)) return
     setBusy(true)
     setError(null)
     try {
@@ -161,6 +217,110 @@ export function LanguageDialog({
         },
       )
       onChange(project, target)
+      onOpenChange(false)
+    } catch (error) {
+      setError(messageFor(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Dialog open={open} onOpenChange={(next) => {
+      if (busy) return
+      setError(null)
+      onOpenChange(next)
+    }}>
+      <DialogContent
+        render={
+          <form
+            onSubmit={(event) => {
+              event.preventDefault()
+              void create()
+            }}
+          />
+        }
+      >
+        <DialogHeader>
+          <DialogTitle>Add a localization</DialogTitle>
+          <DialogDescription>
+            Copy a language’s artwork as a starting point, then translate the
+            text and replace localized screenshots.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4">
+          <Field>
+            <FieldLabel htmlFor="new-locale">Language</FieldLabel>
+            <LocalePicker
+              id="new-locale"
+              value={target}
+              onValueChange={setTarget}
+              disabled={busy}
+            />
+            {page.localizations.includes(target) && (
+              <p className="text-xs text-muted-foreground">
+                This language already exists on this page.
+              </p>
+            )}
+          </Field>
+          <Choice
+            label="Copy artwork from"
+            value={source}
+            onChange={setSource}
+            disabled={busy}
+            options={[
+              { value: "blank", label: "Start empty" },
+              ...page.localizations.map((code) => ({
+                value: code,
+                label: appStoreLocale(code).name,
+              })),
+            ]}
+          />
+        </div>
+        {error && (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        )}
+        <DialogFooter>
+          <DialogClose render={<Button type="button" variant="outline" disabled={busy} />}>
+            Cancel
+          </DialogClose>
+          <Button
+            type="submit"
+            disabled={busy || !target || page.localizations.includes(target)}
+          >
+            {busy && <LoaderCircle className="animate-spin" />}
+            {busy ? "Copying…" : "Add language"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+export function RemoveLanguageDialog({
+  page,
+  locale,
+  onChange,
+}: {
+  page: ProductPage
+  locale: string
+  onChange: (project: StoreShotProject) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const language = appStoreLocale(locale).name
+  async function remove() {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      const project = await request<StoreShotProject>(
+        `/api/pages/${encodeURIComponent(page.id)}/localizations/${encodeURIComponent(locale)}`,
+        { method: "DELETE" },
+      )
+      onChange(project)
       setOpen(false)
     } catch (error) {
       setError(messageFor(error))
@@ -169,54 +329,43 @@ export function LanguageDialog({
     }
   }
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button size="sm" variant="outline" />}>
-        <Languages />
-        Add language
-      </DialogTrigger>
-      <DialogContent className="p-6">
-        <DialogHeader>
-          <DialogTitle>Add a localization</DialogTitle>
-          <DialogDescription>
-            Copy a language’s artwork as a starting point, then translate the
-            text and replace localized screenshots.
-          </DialogDescription>
-        </DialogHeader>
-        <Field>
-          <FieldLabel htmlFor="new-locale">Language</FieldLabel>
-          <LocalePicker
-            id="new-locale"
-            value={target}
-            onValueChange={setTarget}
-          />
-        </Field>
-        <Choice
-          label="Copy artwork from"
-          value={source}
-          onChange={setSource}
-          options={[
-            { value: "blank", label: "Start empty" },
-            ...page.localizations.map((code) => ({ value: code, label: code })),
-          ]}
-        />
-        {page.localizations.includes(target) && (
-          <p className="text-sm text-muted-foreground">
-            This language already exists.
-          </p>
-        )}
-        {error && (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        )}
-        <Button
-          disabled={busy || page.localizations.includes(target)}
-          onClick={() => void create()}
-        >
-          {busy ? "Copying…" : "Add language"}
-        </Button>
-      </DialogContent>
-    </Dialog>
+    <>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label={`Remove ${language}`}
+        title={`Remove ${language}`}
+        className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+        onClick={() => {
+          setError(null)
+          setOpen(true)
+        }}
+      >
+        <Trash2 />
+      </Button>
+      <AlertDialog open={open} onOpenChange={(next) => { if (!busy) setOpen(next) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove {language}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes {language} and all of its screenshot and artwork collections
+              from {page.name}. Source assets remain on disk. Other languages
+              and pages are unaffected.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+          <AlertDialogFooter>
+            <AlertDialogCancel render={<Button variant="outline" disabled={busy} />}>
+              Cancel
+            </AlertDialogCancel>
+            <Button variant="destructive" disabled={busy} onClick={() => void remove()}>
+              {busy && <LoaderCircle className="animate-spin" />}
+              {busy ? "Removing…" : "Remove language"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }
 
@@ -225,7 +374,7 @@ export function RemovePageDialog({
   onChange,
 }: {
   page: ProductPage
-  onChange: (project: StoreShotProject, pageId?: string) => void
+  onChange: (project: StoreShotProject, pageId?: string | null) => void
 }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -238,7 +387,7 @@ export function RemovePageDialog({
       const project = await request<StoreShotProject>(`/api/pages/${page.id}`, {
         method: "DELETE",
       })
-      onChange(project, "default")
+      onChange(project, project.config.pages[0]?.id ?? null)
       setOpen(false)
     } catch (error) {
       setError(messageFor(error))
@@ -246,14 +395,11 @@ export function RemovePageDialog({
       setBusy(false)
     }
   }
-  if (page.kind === "default") return null
   return (
     <>
       <Button
         variant="ghost"
-        size="sm"
-        aria-label="Delete product page"
-        title="Delete page"
+        className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
         onClick={() => {
           setError(null)
           setOpen(true)
@@ -273,7 +419,7 @@ export function RemovePageDialog({
             <AlertDialogTitle>Remove {page.name}?</AlertDialogTitle>
             <AlertDialogDescription>
               This removes the page and all of its screenshot and artwork
-              collections. Source artwork files remain on disk. Other pages are
+              collections. Source assets remain on disk. Other pages are
               unaffected.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -293,6 +439,7 @@ export function RemovePageDialog({
               disabled={busy}
               onClick={() => void remove()}
             >
+              {busy && <LoaderCircle className="animate-spin" />}
               {busy ? "Removing…" : "Remove page"}
             </Button>
           </AlertDialogFooter>

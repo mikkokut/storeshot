@@ -1,0 +1,17 @@
+{
+  "version": 3,
+  "pageId": "examples",
+  "specId": "iphone",
+  "name": "Phone composition examples",
+  "locale": "en-US",
+  "device": "Phone",
+  "canvas": {
+    "width": 1206,
+    "height": 2622
+  },
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "areas": [
+    "soft-shell"
+  ]
+}

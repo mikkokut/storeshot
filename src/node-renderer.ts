@@ -92,7 +92,7 @@ export async function renderScreenshotSets(options: RenderOptions): Promise<Rend
     const root = await realpath(options.store.root)
     const relative = path.relative(resolvedTarget, root)
     if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative)) ||
-      ["sets", "assets", "mockup-bundles"].some((name) => { const source = path.join(root, name); return resolvedTarget === source || resolvedTarget.startsWith(`${source}${path.sep}`) })) {
+      ["sets", "assets"].some((name) => { const source = path.join(root, name); return resolvedTarget === source || resolvedTarget.startsWith(`${source}${path.sep}`) })) {
       throw new Error("Render output must not overlap project source files")
     }
   }

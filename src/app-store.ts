@@ -1,7 +1,6 @@
 import { APP_STORE_LOCALES } from "./app-store-locales.js"
 import type {
   AppDevice,
-  ProductPage,
   ScreenshotSet,
   StoreShotConfig,
 } from "./shared.js"
@@ -27,7 +26,7 @@ export interface AssetSpec {
   kind: "screenshots" | "header" | "search-results" | "universal"
   sizes: readonly (readonly [number, number])[]
   rotate: boolean
-  requirement: "required" | "optional" | "upcoming"
+  requirement: "required" | "optional"
   guidance: string
   maxCount: number
 }
@@ -87,16 +86,16 @@ export const ASSET_SPECS: AssetSpec[] = [
     "iPhone Duo · Outer display",
     "iphone-duo",
     [[1398, 2034]],
-    "upcoming",
-    "Design for this display, then check the inner layout.",
+    "required",
+    "Design for this display, then check the inner layout. Required from April 2027 for apps using the iOS 27.1 SDK or later.",
   ),
   screenshot(
     "iphone-duo-inner",
     "iPhone Duo · Inner display",
     "iphone-duo",
     [[2007, 2853]],
-    "upcoming",
-    "Show how your app uses the expanded display.",
+    "required",
+    "Show how your app uses the expanded display. Required from April 2027 for apps using the iOS 27.1 SDK or later.",
   ),
   screenshot(
     "ipad",
@@ -222,10 +221,6 @@ export function creationSize(
   return watch ? [watch.canvas.width, watch.canvas.height] : spec.sizes[0]
 }
 
-export function creationSpecsForPage(page: ProductPage): AssetSpec[] {
-  return specsForPage(page).filter((spec) => CREATION_SPECS.includes(spec))
-}
-
 export function assetSpec(id: string): AssetSpec | undefined {
   return ASSET_SPECS.find((spec) => spec.id === id)
 }
@@ -263,30 +258,17 @@ export function inferSpec(width: number, height: number, device = ""): string {
     "unassigned"
   )
 }
-export function specsForPage(page: ProductPage): AssetSpec[] {
-  return ASSET_SPECS.filter((spec) => {
-    if (spec.device === "creative") return true
-    if (
-      page.kind !== "default" &&
-      !["iphone", "ipad", "iphone-duo"].includes(spec.device)
-    )
-      return false
-    return true
-  })
-}
 export function defaultConfig(): StoreShotConfig {
   return {
     version: 2,
-    store: "app-store",
     pages: [
       {
         id: "default",
-        name: "Default Product Page",
-        kind: "default",
+        name: "Product Page",
+        store: "app-store",
         localizations: [],
       },
     ],
-    tests: [],
   }
 }
 export interface ReadinessIssue {
@@ -323,11 +305,6 @@ export function readinessIssues(
     else {
       if (!page.localizations.includes(set.locale))
         add("locale", "Add this language to the product page.")
-      if (spec && !specsForPage(page).includes(spec))
-        add(
-          "destination",
-          "This asset destination is not enabled for this product page.",
-        )
     }
     if (!spec)
       add(
@@ -366,7 +343,7 @@ export function readinessIssues(
   )
   for (const page of config.pages)
     for (const locale of page.localizations) {
-      for (const spec of specsForPage(page).filter(
+      for (const spec of ASSET_SPECS.filter(
         (spec) =>
           spec.requirement === "required" &&
           spec.device !== "creative" &&

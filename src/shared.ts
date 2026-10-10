@@ -22,31 +22,23 @@ export const APP_DEVICES = [
 ] as const
 export type AppDevice = (typeof APP_DEVICES)[number]
 
+export type PageStore = "app-store" | "play-store"
+
 export interface ProductPage {
   id: string
   name: string
-  kind: "default" | "custom" | "treatment"
-  testId?: string
+  store: PageStore
   localizations: string[]
-}
-
-export interface OptimizationTest {
-  id: string
-  name: string
 }
 
 export interface StoreShotConfig {
   version: 2
-  store: "app-store"
   pages: ProductPage[]
-  tests: OptimizationTest[]
 }
 
 export interface CreatePageInput {
   name: string
-  kind: "custom" | "treatment"
-  testId?: string
-  testName?: string
+  store?: PageStore
   sourcePageId?: string
 }
 
@@ -62,6 +54,7 @@ export interface Asset {
   url: string
   size: number
   modifiedAt: string
+  checksum: string
   width?: number
   height?: number
   /** The dimension-based classification before a user override is applied. */
@@ -101,7 +94,7 @@ export interface StoreShotProject {
   sets: ScreenshotSet[]
 }
 
-/** The HTML is hydrated from sets/<set-id>/<area-id>.html by ProjectStore. */
+/** Metadata and HTML are hydrated from sets/<set-id>/<area-id>[-slug].{json,html}. */
 export interface ScreenshotArea {
   id: string
   name: string

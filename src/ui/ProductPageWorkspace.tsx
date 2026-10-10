@@ -1,9 +1,12 @@
 import { useMemo, useState } from "react"
 import {
-  ArrowUpRight,
+  ChevronRight,
+  CircleAlert,
+  Columns2,
   Download,
   LoaderCircle,
   Monitor,
+  Plus,
   Smartphone,
   Tablet,
   Tv,
@@ -11,15 +14,18 @@ import {
   Glasses,
 } from "lucide-react"
 import { ArtworkViewer } from "@/ArtworkViewer"
+import { PageHeader } from "@/PageHeader"
 import { PageTitle } from "@/PageTitle"
 import { ArtworkEmptyState } from "@/ArtworkEmptyState"
 import { request, messageFor } from "@/api"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { Choice, CreateSetDialog } from "@/CreateSetForm"
+import { CreateSetDialog } from "@/CreateSetForm"
 import {
   LanguageDialog,
+  RemoveLanguageDialog,
   PageDialog,
   RemovePageDialog,
 } from "@/WorkspaceDialogs"
@@ -28,7 +34,7 @@ import {
   ASSET_SPECS,
   DEVICE_LABELS,
   assetSpec,
-  creationSpecsForPage,
+  CREATION_SPECS,
   type AssetSpec,
 } from "../app-store"
 import type {
@@ -41,8 +47,7 @@ import type {
 interface WorkspaceProps {
   project: StoreShotProject
   page: ProductPage
-  onChange: (project: StoreShotProject, pageId?: string) => void
-  onNavigate: (path: string) => void
+  onChange: (project: StoreShotProject, pageId?: string | null) => void
 }
 const DEVICE_TABS: {
   id: AppDevice
@@ -52,37 +57,33 @@ const DEVICE_TABS: {
 }[] = [
   {
     id: "iphone",
-    title: "iPhone with Dynamic Island",
-    subtitle: "(medium display)",
+    title: "iPhone",
+    subtitle: "Dynamic Island, medium",
     icon: Smartphone,
   },
-  { id: "ipad", title: "iPad", subtitle: '13" display', icon: Tablet },
+  { id: "iphone-duo", title: "iPhone Duo", subtitle: "Outer & inner displays", icon: Columns2 },
+  { id: "ipad", title: "iPad", subtitle: "13-inch display", icon: Tablet },
   { id: "watch", title: "Apple Watch", icon: Watch },
   { id: "mac", title: "Mac", icon: Monitor },
   { id: "tv", title: "Apple TV", icon: Tv },
   { id: "vision", title: "Apple Vision Pro", icon: Glasses },
 ]
-
 export function ProductPageWorkspace({
   project,
   page,
   onChange,
-  onNavigate,
 }: WorkspaceProps) {
   const [viewingId, setViewingId] = useState<string | null>(null)
   const viewing = project.sets.find(
     (set) => set.id === viewingId && set.pageId === page.id,
   )
-  const [language, setLanguage] = useState(page.localizations[0] ?? "")
-  const locale = page.localizations.includes(language)
-    ? language
-    : (page.localizations[0] ?? "")
+  const [languageDialogOpen, setLanguageDialogOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const collections = project.sets.filter(
-    (set) => set.pageId === page.id && set.locale === locale,
+    (set) => set.pageId === page.id,
   )
-  const specs = creationSpecsForPage(page)
+  const specs = CREATION_SPECS
   async function exportPage() {
     setBusy(true)
     setError(null)
@@ -98,22 +99,19 @@ export function ProductPageWorkspace({
       setBusy(false)
     }
   }
-  async function created(set: ScreenshotSet) {
-    setLanguage(set.locale)
+  async function created() {
     onChange(await request<StoreShotProject>("/api/project"))
   }
   const preserved = collections.filter(
     (set) => !specs.some((spec) => spec.id === set.specId),
   )
   return (
-    <Tabs defaultValue="screenshots" className="h-full">
-      <header className="border-b bg-background px-8 pt-7">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0 max-w-full">
-            <p className="text-xs text-muted-foreground">Product Page</p>
-            <PageTitle key={page.id} page={page} onChange={onChange} />
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
+    <Tabs defaultValue="screenshots" className="min-h-0 flex-1">
+      <PageHeader
+        eyebrow={page.store === "app-store" ? "App Store" : "Google Play"}
+        title={<PageTitle key={page.id} page={page} onChange={onChange} />}
+        actions={
+          <>
             <RemovePageDialog key={page.id} page={page} onChange={onChange} />
             <PageDialog
               project={project}
@@ -122,7 +120,6 @@ export function ProductPageWorkspace({
             />
             <Button
               variant="outline"
-              size="sm"
               disabled={
                 busy || !project.sets.some((set) => set.pageId === page.id)
               }
@@ -131,74 +128,52 @@ export function ProductPageWorkspace({
               {busy ? <LoaderCircle className="animate-spin" /> : <Download />}
               Export all languages
             </Button>
-          </div>
+          </>
+        }
+      >
+        <div className="mt-4">
+          <TabsList aria-label="Asset type" className="-mb-px">
+            <TabsTrigger value="screenshots">Screenshots</TabsTrigger>
+            <TabsTrigger value="creative">
+              Header &amp; Search Results
+            </TabsTrigger>
+          </TabsList>
         </div>
-        <div className="my-5 flex flex-wrap items-end gap-3">
-          {locale ? (
-            <>
-              <div className="w-64">
-                <Choice
-                  label="Localization"
-                  value={locale}
-                  onChange={setLanguage}
-                  options={page.localizations.map((code) => ({
-                    value: code,
-                    label: appStoreLocale(code).name,
-                  }))}
-                />
-              </div>
-              <LanguageDialog
-                key={`${page.id}/${locale}`}
-                page={page}
-                locale={locale}
-                onChange={(project, locale) => {
-                  onChange(project)
-                  setLanguage(locale)
-                }}
-              />
-            </>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Choose a language when creating your first screenshot or artwork.
-            </p>
-          )}
-        </div>
-        <TabsList aria-label="Asset type">
-          <TabsTrigger value="screenshots">Screenshots</TabsTrigger>
-          <TabsTrigger value="creative">
-            Header &amp; Search Results
-          </TabsTrigger>
-        </TabsList>
-      </header>
+      </PageHeader>
       {error && (
-        <Alert variant="destructive">
+        <Alert variant="destructive" layout="banner">
+          <CircleAlert />
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      <TabsContent value="screenshots" className="overflow-auto p-8">
+      <TabsContent value="screenshots" className="overflow-auto p-6 lg:p-8">
         <DeviceArtwork
           key={page.id}
           project={project}
           page={page}
-          locale={locale}
           collections={collections}
+          onChange={onChange}
           onCreate={created}
           onView={setViewingId}
-          onNavigate={onNavigate}
         />
         {preserved.length > 0 && (
-          <details className="mt-8 rounded-xl border bg-background p-5">
-            <summary className="cursor-pointer text-sm font-medium">
-              Additional artwork · {preserved.length}
+          <details className="group mt-8 rounded-xl border bg-card">
+            <summary className="flex cursor-pointer list-none items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium outline-none select-none focus-visible:ring-3 focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden">
+              <ChevronRight className="size-4 text-muted-foreground transition-transform group-open:rotate-90" />
+              Additional artwork
+              <Badge variant="secondary">{preserved.length}</Badge>
             </summary>
-            <div className="mt-4 space-y-3">
+            <ul className="divide-y border-t">
               {preserved.map((set) => (
-                <div
+                <li
                   key={set.id}
-                  className="flex items-center justify-between gap-3"
+                  className="flex items-center justify-between gap-3 px-4 py-2.5"
                 >
-                  <span className="text-sm">
-                    {set.name} · {set.canvas.width} × {set.canvas.height}
+                  <span className="min-w-0 truncate text-sm">
+                    {set.name}
+                    <span className="ml-2 text-muted-foreground tabular-nums">
+                      {set.canvas.width} × {set.canvas.height}
+                    </span>
                   </span>
                   <Button
                     size="sm"
@@ -207,38 +182,70 @@ export function ProductPageWorkspace({
                   >
                     View artwork
                   </Button>
-                </div>
+                </li>
               ))}
-            </div>
+            </ul>
           </details>
         )}
+        {page.localizations.length > 0 && (
+          <Button
+            className="mt-8"
+            variant="outline"
+            onClick={() => setLanguageDialogOpen(true)}
+          >
+            <Plus />
+            Add new language
+          </Button>
+        )}
       </TabsContent>
-      <TabsContent value="creative" className="overflow-auto p-8">
+      <TabsContent value="creative" className="overflow-auto p-6 lg:p-8">
         <Tabs defaultValue="header">
-          <TabsList aria-label="Creative placement">
-            <TabsTrigger value="header">Header</TabsTrigger>
-            <TabsTrigger value="search-results">Search Results</TabsTrigger>
-            <TabsTrigger value="universal">Universal Creative</TabsTrigger>
+          <TabsList aria-label="Creative placement" variant="segmented">
+            <TabsTrigger value="header" variant="segmented">
+              Header
+            </TabsTrigger>
+            <TabsTrigger value="search-results" variant="segmented">
+              Search Results
+            </TabsTrigger>
+            <TabsTrigger value="universal" variant="segmented">
+              Universal Creative
+            </TabsTrigger>
           </TabsList>
           {ASSET_SPECS.filter((spec) => spec.device === "creative").map(
             (spec) => (
-              <TabsContent key={spec.id} value={spec.id} className="pt-7">
-                <ArtworkSlot
-                  spec={spec}
-                  set={collections.find((set) => set.specId === spec.id)}
+              <TabsContent key={spec.id} value={spec.id} className="pt-6">
+                <ArtworkLanguages
+                  specs={[spec]}
+                  collections={collections}
+                  onChange={onChange}
                   page={page}
-                  locale={locale}
                   project={project}
                   onCreate={created}
                   onView={setViewingId}
-                  onNavigate={onNavigate}
-                  available={specs.includes(spec)}
                 />
               </TabsContent>
             ),
           )}
         </Tabs>
+        {page.localizations.length > 0 && (
+          <Button
+            className="mt-8"
+            variant="outline"
+            onClick={() => setLanguageDialogOpen(true)}
+          >
+            <Plus />
+            Add new language
+          </Button>
+        )}
       </TabsContent>
+      <LanguageDialog
+        key={`${page.id}/${page.localizations.join("/")}`}
+        page={page}
+        locale={page.localizations[0] ?? "blank"}
+        open={languageDialogOpen}
+        onOpenChange={setLanguageDialogOpen}
+        onChange={(project) => onChange(project)}
+      />
       {viewing && (
         <ArtworkViewer
           set={viewing}
@@ -253,18 +260,16 @@ export function ProductPageWorkspace({
 function DeviceArtwork({
   project,
   page,
-  locale,
   collections,
+  onChange,
   onCreate,
-  onNavigate,
   onView,
 }: {
   project: StoreShotProject
   page: ProductPage
-  locale: string
   collections: ScreenshotSet[]
+  onChange: (project: StoreShotProject) => void
   onCreate: (set: ScreenshotSet) => Promise<void>
-  onNavigate: (path: string) => void
   onView: (id: string) => void
 }) {
   const [device, setDevice] = useState<AppDevice>(
@@ -282,15 +287,15 @@ function DeviceArtwork({
       value={device}
       onValueChange={(value) => setDevice(value as AppDevice)}
     >
-      <div className="-mx-1 overflow-x-auto px-1">
+      <div className="-m-1 overflow-x-auto p-1">
         <TabsList aria-label="Screenshot device" variant="icon">
           {DEVICE_TABS.map(({ id, title, subtitle, icon: Icon }) => (
             <TabsTrigger key={id} value={id} variant="icon">
-              <Icon aria-hidden className="size-8 shrink-0 stroke-[1.3]" />
-              <span className="text-sm leading-5">
+              <Icon aria-hidden className="size-5 stroke-[1.5]" />
+              <span className="text-[13px] leading-tight">
                 {title}
                 {subtitle && (
-                  <span className="block font-normal text-muted-foreground">
+                  <span className="block text-xs font-normal text-muted-foreground">
                     {subtitle}
                   </span>
                 )}
@@ -300,29 +305,71 @@ function DeviceArtwork({
         </TabsList>
       </div>
       {DEVICE_TABS.map(({ id }) => {
-        const selected = ASSET_SPECS.find(
+        const selected = ASSET_SPECS.filter(
           (spec) => spec.device === id && spec.requirement === "required",
-        )!
-        const available =
-          page.kind === "default" ||
-          ["iphone", "ipad", "iphone-duo"].includes(id)
+        )
         return (
-          <TabsContent key={id} value={id} className="pt-7">
-            <ArtworkSlot
-              spec={selected}
-              set={collections.find((set) => set.specId === selected.id)}
+          <TabsContent key={id} value={id} className="pt-6">
+            <ArtworkLanguages
+              specs={selected}
+              collections={collections}
+              onChange={onChange}
               page={page}
-              locale={locale}
               project={project}
               onCreate={onCreate}
               onView={onView}
-              onNavigate={onNavigate}
-              available={available}
             />
           </TabsContent>
         )
       })}
     </Tabs>
+  )
+}
+
+function ArtworkLanguages({
+  specs,
+  collections,
+  page,
+  onChange,
+  ...props
+}: {
+  specs: AssetSpec[]
+  collections: ScreenshotSet[]
+  page: ProductPage
+  onChange: (project: StoreShotProject) => void
+  project: StoreShotProject
+  onCreate: (set: ScreenshotSet) => Promise<void>
+  onView: (id: string) => void
+}) {
+  const locales = page.localizations.length ? page.localizations : [""]
+  return (
+    <div className="space-y-10">
+      {locales.map((locale) => (
+        <section key={locale} aria-label={locale ? appStoreLocale(locale).name : "Artwork"}>
+          {locale && (
+            <div className="mb-5 flex items-center gap-2">
+              <h2 className="flex items-baseline gap-2 text-lg font-semibold tracking-tight">
+                {appStoreLocale(locale).name}
+                <span className="text-xs font-normal tracking-normal text-muted-foreground">{locale}</span>
+              </h2>
+              <RemoveLanguageDialog page={page} locale={locale} onChange={onChange} />
+            </div>
+          )}
+          <div className="space-y-8">
+            {specs.map((spec) => (
+              <ArtworkSlot
+                key={spec.id}
+                spec={spec}
+                set={collections.find((set) => set.specId === spec.id && set.locale === locale)}
+                page={page}
+                locale={locale}
+                {...props}
+              />
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
   )
 }
 
@@ -333,9 +380,7 @@ function ArtworkSlot({
   locale,
   project,
   onCreate,
-  onNavigate,
   onView,
-  available,
 }: {
   spec: AssetSpec
   set?: ScreenshotSet
@@ -343,13 +388,13 @@ function ArtworkSlot({
   locale: string
   project: StoreShotProject
   onCreate: (set: ScreenshotSet) => Promise<void>
-  onNavigate: (path: string) => void
   onView: (id: string) => void
-  available: boolean
 }) {
   const isScreenshot = spec.kind === "screenshots"
   const name =
-    spec.device === "creative" ? spec.name : DEVICE_LABELS[spec.device]
+    spec.device === "creative" || spec.device === "iphone-duo"
+      ? spec.name
+      : DEVICE_LABELS[spec.device]
   const create = (
     <CreateSetDialog
       key={`${page.id}/${locale}/${spec.id}`}
@@ -364,55 +409,24 @@ function ArtworkSlot({
   if (!set)
     return (
       <ArtworkEmptyState
-        title={
-          available
-            ? `No ${name} ${isScreenshot ? "screenshots" : "artwork"} yet`
-            : `${name} artwork lives on your default page`
-        }
+        title={`No ${name} ${isScreenshot ? "screenshots" : "artwork"} yet`}
         description={
-          available
-            ? isScreenshot
-              ? `Create the first composition${locale ? ` for ${appStoreLocale(locale).name}` : " and choose its language"}. Add your app imagery, tell its story, and export at the right size.`
-              : spec.guidance
-            : "Custom product pages and optimization treatments support iPhone and iPad artwork. Use your default page for this device."
+          isScreenshot
+            ? `Create the first composition${locale ? ` for ${appStoreLocale(locale).name}` : " and choose its language"}. Add your app imagery, tell its story, and export at the right size.`
+            : spec.guidance
         }
-        metadata={
-          available
-            ? `${spec.sizes[0].join(" × ")} px · ${isScreenshot ? "1–10 screenshots" : "1 PNG image"}`
-            : undefined
-        }
-        actions={
-          available ? (
-            create
-          ) : (
-            <Button
-              variant="outline"
-              onClick={() => onNavigate("/pages/default")}
-            >
-              Open default product page
-              <ArrowUpRight />
-            </Button>
-          )
-        }
-        footer={
-          available && isScreenshot
-            ? "Source images are available from your Asset Library."
-            : undefined
-        }
+        metadata={`${spec.sizes[0].join(" × ")} px · ${isScreenshot ? "1–10 screenshots" : "1 PNG image"}`}
+        actions={create}
+        footer={isScreenshot ? "Source images are available from your Asset Library." : undefined}
       />
     )
   return (
     <div>
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="font-semibold">{spec.name}</h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {set.areas.length} {isScreenshot ? "screenshots" : "image"} ·{" "}
-            {set.canvas.width} × {set.canvas.height} px ·{" "}
-            {appStoreLocale(locale).name}
-          </p>
-        </div>
-      </div>
+      {spec.device === "iphone-duo" && (
+        <h3 className="mb-5 text-sm font-medium">
+          {spec.id === "iphone-duo-outer" ? "Outer display" : "Inner display"}
+        </h3>
+      )}
       <ArtworkStrip
         set={set}
         revision={project}
@@ -434,17 +448,17 @@ function ArtworkStrip({
   const stamp = useMemo(() => Date.now(), [revision])
   const scale = Math.min(380 / set.canvas.height, 660 / set.canvas.width, 1)
   return (
-    <div className="flex gap-5 overflow-x-auto pb-4">
+    <div className="-m-1 flex gap-5 overflow-x-auto p-1 pb-4">
       {set.areas.map((area, index) => (
         <button
           type="button"
           key={area.id}
           aria-label={`Open ${area.name}`}
-          className="group shrink-0 rounded-xl text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="group shrink-0 rounded-xl text-left outline-none"
           onClick={onOpen}
         >
           <div
-            className="overflow-hidden rounded-xl bg-white ring-1 ring-black/10 transition-shadow group-hover:shadow-md"
+            className="overflow-hidden rounded-xl bg-white shadow-xs ring-1 ring-black/10 transition-shadow group-hover:shadow-md group-hover:ring-black/15 group-focus-visible:ring-3 group-focus-visible:ring-ring/60"
             style={{
               width: set.canvas.width * scale,
               height: set.canvas.height * scale,
@@ -467,8 +481,11 @@ function ArtworkStrip({
               }}
             />
           </div>
-          <p className="mt-3 max-w-64 truncate text-xs text-muted-foreground">
-            {String(index + 1).padStart(2, "0")} · {area.name}
+          <p className="mt-2.5 max-w-64 truncate text-[13px]">
+            <span className="mr-1.5 text-muted-foreground tabular-nums">
+              {String(index + 1).padStart(2, "0")}
+            </span>
+            {area.name}
           </p>
         </button>
       ))}

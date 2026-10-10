@@ -1,11 +1,13 @@
 import { useState } from "react"
-import { Plus } from "lucide-react"
+import { LoaderCircle, Plus } from "lucide-react"
 import { request, messageFor } from "@/api"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -19,6 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { LocalePicker } from "@/LocalePicker"
+import { appStoreLocale } from "@/app-store-locales"
 import { creationSize, type AssetSpec } from "../app-store"
 import type { ScreenshotSet } from "../shared"
 
@@ -27,29 +30,35 @@ export function Choice({
   value,
   options,
   onChange,
+  disabled = false,
 }: {
   label: string
   value: string
-  options: { value: string; label: string }[]
+  options: { value: string; label: string; disabled?: boolean }[]
   onChange: (value: string) => void
+  disabled?: boolean
 }) {
   return (
     <Field>
       <FieldLabel>{label}</FieldLabel>
       <Select
+        disabled={disabled}
         value={value}
         onValueChange={(value) => {
           if (value) onChange(value)
         }}
       >
-        <SelectTrigger aria-label={label} className="w-full">
+        <SelectTrigger
+          aria-label={label}
+          className="w-full"
+        >
           <SelectValue>
             {options.find((option) => option.value === value)?.label ?? value}
           </SelectValue>
         </SelectTrigger>
         <SelectContent>
           {options.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
+            <SelectItem key={option.value} value={option.value} disabled={option.disabled}>
               {option.label}
             </SelectItem>
           ))}
@@ -79,7 +88,9 @@ export function CreateSetDialog({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [width, height] = creationSize(spec, sets)
+  const isScreenshot = spec.kind === "screenshots"
   async function create() {
+    if (busy) return
     setBusy(true)
     setError(null)
     try {
@@ -104,12 +115,25 @@ export function CreateSetDialog({
     }
   }
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button size="sm" variant="outline" />}>
+    <Dialog open={open} onOpenChange={(next) => {
+      if (busy) return
+      setError(null)
+      setOpen(next)
+    }}>
+      <DialogTrigger render={<Button />}>
         <Plus />
         {label}
       </DialogTrigger>
-      <DialogContent className="p-6">
+      <DialogContent
+        render={
+          <form
+            onSubmit={(event) => {
+              event.preventDefault()
+              void create()
+            }}
+          />
+        }
+      >
         <DialogHeader>
           <DialogTitle>{spec.name}</DialogTitle>
           <DialogDescription>{spec.guidance}</DialogDescription>
@@ -121,28 +145,51 @@ export function CreateSetDialog({
               id="artwork-language"
               value={language}
               onValueChange={setLanguage}
+              disabled={busy}
             />
           </Field>
         )}
-        <p className="text-sm">
-          Export size: {width} × {height} px.
-          {spec.id === "watch" && sets.some((set) => set.specId === "watch")
-            ? " Matches your other Apple Watch screenshots."
-            : spec.id === "iphone" || spec.id === "ipad"
-              ? " App Store Connect scales these for smaller displays."
-              : ""}
-        </p>
-        <p className="text-xs text-muted-foreground">
-          {selectedLocale} · {width} × {height} px · PNG export
-        </p>
+        <div className="rounded-xl bg-muted/60 px-4 py-3 text-sm">
+          <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5">
+            <dt className="text-muted-foreground">Language</dt>
+            <dd className="text-right">
+              {appStoreLocale(selectedLocale).name}
+            </dd>
+            <dt className="text-muted-foreground">Export size</dt>
+            <dd className="text-right tabular-nums">
+              {width} × {height} px
+            </dd>
+            <dt className="text-muted-foreground">Format</dt>
+            <dd className="text-right">PNG</dd>
+          </dl>
+          {(spec.id === "watch" && sets.some((set) => set.specId === "watch")) ||
+          spec.id === "iphone" ||
+          spec.id === "ipad" ? (
+            <p className="mt-3 border-t pt-3 text-xs leading-relaxed text-muted-foreground">
+              {spec.id === "watch"
+                ? "Matches your other Apple Watch screenshots."
+                : "App Store Connect scales these for smaller displays."}
+            </p>
+          ) : null}
+        </div>
         {error && (
           <p role="alert" className="text-sm text-destructive">
             {error}
           </p>
         )}
-        <Button disabled={busy} onClick={() => void create()}>
-          {busy ? "Creating…" : "Create artwork"}
-        </Button>
+        <DialogFooter>
+          <DialogClose render={<Button type="button" variant="outline" disabled={busy} />}>
+            Cancel
+          </DialogClose>
+          <Button type="submit" disabled={busy}>
+            {busy && <LoaderCircle className="animate-spin" />}
+            {busy
+              ? "Creating…"
+              : isScreenshot
+                ? "Create screenshots"
+                : "Create artwork"}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

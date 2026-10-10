@@ -19,7 +19,7 @@ concurrency:
 jobs:
   release:
     name: Prepare release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     steps:
@@ -65,9 +65,15 @@ jobs:
         if: steps.release.outputs.release_created == 'true'
         run: npm ci
 
+      - name: Verify Chrome for rendering tests
+        if: steps.release.outputs.release_created == 'true'
+        run: google-chrome --version
+
       - name: Validate release
         if: steps.release.outputs.release_created == 'true'
         run: npm run check
+        env:
+          STORESHOT_CHROME: /usr/bin/google-chrome
 
       - name: Preview package contents
         if: steps.release.outputs.release_created == 'true'

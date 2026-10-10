@@ -1,19 +1,11 @@
+import { scanLocalAssetFiles, catalogInstallation } from "./asset-catalog.js"
 import { readinessIssues } from "./app-store.js"
 import { lstat, readFile, readdir } from "node:fs/promises"
 import path from "node:path"
 
 import {
-  MOCKUP_BUNDLE_FILENAME,
-  mergeDeviceMockupCatalogs,
-  parseMockupBundleManifest,
-  resolveMockupBundle,
-  type DeviceMockupCatalog,
-} from "./device-mockups.js"
-import { resolvePackagePublicDirectory } from "./package-assets.js"
-import {
   ASSETS_DIRECTORY,
   CONFIG_FILENAME,
-  MOCKUP_BUNDLES_DIRECTORY,
   ProjectStore,
   SETS_DIRECTORY,
   parseStoreShotConfig,
@@ -32,6 +24,7 @@ export interface ValidationIssue {
 export interface ValidationReport {
   ok: boolean
   directory: string
+  pageId?: string
   errors: ValidationIssue[]
   warnings: ValidationIssue[]
   summary: {
@@ -47,16 +40,14 @@ export interface ProjectValidation {
   config?: StoreShotConfig
   assets?: Record<AssetCategory, Asset[]>
   sets: ScreenshotSet[]
-  mockupCatalog?: DeviceMockupCatalog
 }
 
-export async function validateProject(directory: string, packageRoot: string): Promise<ProjectValidation> {
+export async function validateProject(directory: string, options: { pageId?: string } = {}): Promise<ProjectValidation> {
   const root = path.resolve(directory)
   const issues: ValidationIssue[] = []
   const store = new ProjectStore(root)
   let config: StoreShotConfig | undefined
   let assets: Record<AssetCategory, Asset[]> | undefined
-  let mockupCatalog: DeviceMockupCatalog | undefined
   const sets: ScreenshotSet[] = []
 
   if (!await checkDirectory(root, ".", issues)) return validationResult(root, issues, sets)
@@ -70,23 +61,25 @@ export async function validateProject(directory: string, packageRoot: string): P
 
   const assetsReady = await checkDirectory(path.join(root, ASSETS_DIRECTORY), ASSETS_DIRECTORY, issues)
   const setsReady = await checkDirectory(path.join(root, SETS_DIRECTORY), SETS_DIRECTORY, issues)
-  const mockupsReady = await checkDirectory(path.join(root, MOCKUP_BUNDLES_DIRECTORY), MOCKUP_BUNDLES_DIRECTORY, issues)
 
   if (setsReady) {
     const entries = await readdir(store.setsPath, { withFileTypes: true })
     for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
-      if (!entry.name.endsWith(".json")) continue
-      const relativePath = `${SETS_DIRECTORY}/${entry.name}`
-      if (!entry.isFile() || entry.isSymbolicLink()) {
-        issues.push(issue("error", "set.notRegularFile", relativePath, "Set documents must be regular JSON files"))
+      if (entry.name.startsWith(".")) continue
+      const relativePath = `${SETS_DIRECTORY}/${entry.name}/index.json`
+      if (entry.isSymbolicLink()) {
+        issues.push(issue("error", "set.notRegularFile", relativePath, "Set directories cannot be symbolic links"))
         continue
       }
+      if (!entry.isDirectory()) continue
       try {
-        const set = await store.readSet(entry.name.slice(0, -5))
-        sets.push(set)
-        if (entry.name !== `${set.id}.json`) {
-          issues.push(issue("error", "set.filenameMismatch", relativePath, `Set id ${set.id} must be stored in ${set.id}.json`))
-        }
+        await lstat(path.join(store.setsPath, entry.name, "index.json"))
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue
+        throw error
+      }
+      try {
+        sets.push(await store.readSet(entry.name))
       } catch (error) {
         issues.push(issue("error", "set.invalid", relativePath, messageFor(error)))
       }
@@ -96,6 +89,16 @@ export async function validateProject(directory: string, packageRoot: string): P
   if (assetsReady) {
     try {
       assets = await store.listAssets()
+      const imports = await store.readAssetImports()
+      if (imports.length) {
+        const files = await scanLocalAssetFiles(store.assetsPath)
+        for (const entry of new Map(imports.map(entry => [entry.asset.id, entry])).values()) {
+          const versions = imports.filter(version => version.asset.id === entry.asset.id)
+          const state = catalogInstallation(entry.asset, files, imports)
+          for (const file of state.modified) issues.push(issue("warning", "asset.modifiedImport", `assets/${file}`, `Contents differ from imported ${entry.asset.id}; saved geometry describes the original image`))
+          if (!files.some(file => versions.some(version => version.asset.checksum === file.checksum)) && !state.modified.length) issues.push(issue("warning", "asset.missingImport", `assets/${entry.paths[0]}`, `Imported ${entry.asset.id} is missing`))
+        }
+      }
       for (const asset of Object.values(assets).flat()) {
         if (!asset.width || !asset.height) {
           issues.push(issue("error", "asset.invalidImage", `${ASSETS_DIRECTORY}/${asset.id}`, "Asset is not a valid supported image"))
@@ -106,33 +109,18 @@ export async function validateProject(directory: string, packageRoot: string): P
     }
   }
 
-  if (mockupsReady) {
-    try {
-      const [builtInCatalog, projectCatalog] = await Promise.all([
-        loadBuiltInMockupCatalog(packageRoot),
-        store.listMockupCatalog(),
-      ])
-      mockupCatalog = mergeDeviceMockupCatalogs(builtInCatalog, projectCatalog)
-    } catch (error) {
-      issues.push(issue("error", "mockups.invalid", MOCKUP_BUNDLES_DIRECTORY, messageFor(error)))
-    }
+  const selectedSets = options.pageId === undefined ? sets : sets.filter(set => set.pageId === options.pageId)
+  if (options.pageId !== undefined && config && !config.pages.some(page => page.id === options.pageId)) {
+    issues.push(issue("error", "page.unknown", CONFIG_FILENAME, `Unknown product page: ${options.pageId}`))
   }
-
-  validateSetSemantics(sets, issues)
+  validateSetSemantics(selectedSets, issues)
   if (config) for (const entry of readinessIssues(config, sets)) {
-    issues.push(issue(["page", "dimensions", "count", "duplicate", "watch-size"].includes(entry.code) ? "error" : "warning", `appStore.${entry.code}`, entry.setId ? `sets/${entry.setId}.json` : `${entry.pageId}/${entry.locale}`, entry.message))
+    if (options.pageId !== undefined && entry.pageId !== options.pageId) continue
+    issues.push(issue(["page", "dimensions", "count", "duplicate", "watch-size"].includes(entry.code) ? "error" : "warning", `appStore.${entry.code}`, entry.setId ? `sets/${entry.setId}/index.json` : `${entry.pageId}/${entry.locale}`, entry.message))
   }
-  return validationResult(root, issues, sets, config, assets, mockupCatalog)
-}
-
-async function loadBuiltInMockupCatalog(packageRoot: string): Promise<DeviceMockupCatalog> {
-  const publicDirectory = await resolvePackagePublicDirectory(packageRoot)
-  const bundleDirectory = path.join(publicDirectory, "mockup-bundles/frameup-free")
-  const manifest = parseMockupBundleManifest(JSON.parse(await readRegularFile(
-    path.join(bundleDirectory, MOCKUP_BUNDLE_FILENAME),
-    bundleDirectory,
-  )))
-  return resolveMockupBundle(manifest, "/mockup-bundles/frameup-free/", "built-in")
+  const result = validationResult(root, issues, selectedSets, config, assets)
+  if (options.pageId !== undefined) result.report.pageId = options.pageId
+  return result
 }
 
 function validateSetSemantics(
@@ -142,7 +130,7 @@ function validateSetSemantics(
   const setIds = new Set<string>()
 
   for (const set of sets) {
-    const setPath = `${SETS_DIRECTORY}/${set.id}.json`
+    const setPath = `${SETS_DIRECTORY}/${set.id}/index.json`
     if (setIds.has(set.id)) issues.push(issue("error", "set.duplicateId", setPath, `Duplicate set id: ${set.id}`))
     setIds.add(set.id)
 
@@ -189,7 +177,6 @@ function validationResult(
   sets: ScreenshotSet[],
   config?: StoreShotConfig,
   assets?: Record<AssetCategory, Asset[]>,
-  mockupCatalog?: DeviceMockupCatalog,
 ): ProjectValidation {
   const errors = issues.filter((entry) => entry.severity === "error")
   const warnings = issues.filter((entry) => entry.severity === "warning")
@@ -210,7 +197,6 @@ function validationResult(
     ...(config ? { config } : {}),
     ...(assets ? { assets } : {}),
     sets,
-    ...(mockupCatalog ? { mockupCatalog } : {}),
   }
 }
 

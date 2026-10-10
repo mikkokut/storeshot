@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import test from "node:test"
@@ -18,6 +18,8 @@ test("Chrome renders canonical HTML, local CSS and images at the requested size"
     await store.addAsset("brand", "logo.svg", Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="red"/></svg>'))
     // Deliberately leave the in-memory HTML stale to prove the file is authoritative.
     await writeFile(path.join(dir, `${set.areas[0].id}.html`), '<!doctype html><link rel="stylesheet" href="style.css"><h1>Native HTML</h1><img src="../../assets/brand/logo.svg">')
+    for (const extension of ["json", "html"])
+      await rename(path.join(dir, `${set.areas[0].id}.${extension}`), path.join(dir, `${set.areas[0].id}-native-html.${extension}`))
     const options = { clean: false, outputDirectory: path.join(directory, "renders"), scale: .5, sets: [set], store }
     const result = await renderScreenshotSets(options)
     assert.equal(result.files.length, 1)
@@ -26,7 +28,7 @@ test("Chrome renders canonical HTML, local CSS and images at the requested size"
     await assert.rejects(renderScreenshotSets({ ...options, scale: 0 }), /scale/)
     await assert.rejects(renderScreenshotSets({ ...options, area: "missing" }), /no area/)
     await assert.rejects(renderScreenshotSets({ ...options, clean: true, outputDirectory: store.setsPath }), /source files/)
-    await writeFile(path.join(dir, `${set.areas[0].id}.html`), '<img src="../../assets/brand/missing.png">')
+    await writeFile(path.join(dir, `${set.areas[0].id}-native-html.html`), '<img src="../../assets/brand/missing.png">')
     await assert.rejects(renderScreenshotSets(options), /missing|decode|EncodingError/i)
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
@@ -35,16 +37,16 @@ test("previews and Chrome exports load CSS and fonts from another origin", async
   const { createServer } = await import("node:http")
   const { startServer } = await import("../src/server.js")
   const { launchChrome } = await import("../src/node-renderer.js")
-  const font = await readFile(path.join(process.cwd(), "fonts/Geist-Variable.ttf"))
+  const font = await readFile(path.join(process.cwd(), "node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2"))
   const requests: string[] = []
   let missingFont = false
   const remote = createServer((request, response) => {
     requests.push(request.url ?? "")
     response.setHeader("Access-Control-Allow-Origin", "*")
     if (request.url === "/style.css") {
-      response.writeHead(200, { "Content-Type": "text/css" }).end('@font-face{font-family:Remote;src:url("/font.ttf")}body{font-family:Remote}')
-    } else if (request.url === "/font.ttf" && !missingFont) {
-      response.writeHead(200, { "Content-Type": "font/ttf" }).end(font)
+      response.writeHead(200, { "Content-Type": "text/css" }).end('@font-face{font-family:Remote;src:url("/font.woff2")}body{font-family:Remote}')
+    } else if (request.url === "/font.woff2" && !missingFont) {
+      response.writeHead(200, { "Content-Type": "font/woff2" }).end(font)
     } else response.writeHead(404).end()
   })
   await new Promise<void>((resolve) => remote.listen(0, "127.0.0.1", resolve))
@@ -58,7 +60,7 @@ test("previews and Chrome exports load CSS and fonts from another origin", async
     const options = { store: service.store, sets: [set], outputDirectory: path.join(directory, "renders"), clean: false, scale: 1 }
     await renderScreenshotSets(options)
     assert.ok(requests.includes("/style.css"))
-    assert.ok(requests.includes("/font.ttf"))
+    assert.ok(requests.includes("/font.woff2"))
     requests.length = 0
     const browser = await launchChrome()
     try {
@@ -66,7 +68,7 @@ test("previews and Chrome exports load CSS and fonts from another origin", async
       await page.setContent(`<iframe sandbox src="http://127.0.0.1:${service.port}/artboards/sets/${set.id}/${set.areas[0].id}.html"></iframe>`)
       const frame = page.frames().find((frame) => frame.url().includes("/artboards/"))!
       assert.equal(await frame.evaluate(async () => { await document.fonts.ready; return document.fonts.check("16px Remote") }), true)
-      assert.ok(requests.includes("/font.ttf"))
+      assert.ok(requests.includes("/font.woff2"))
     } finally { await browser.close() }
     missingFont = true
     await assert.rejects(renderScreenshotSets(options), /missing or blocked resources/)

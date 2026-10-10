@@ -29,14 +29,6 @@ export async function startServer(options: StartServerOptions) {
   const projectEvents = new ProjectEventHub(store.root)
 
   let vite: ViteDevServer | undefined
-  if (options.useVite) {
-    const { createServer: createViteServer } = await import("vite")
-    vite = await createViteServer({
-      configFile: path.join(options.packageRoot, "vite.config.ts"),
-      server: { middlewareMode: true },
-      appType: "spa",
-    })
-  }
 
   const server = createServer(async (request, response) => {
     try {
@@ -57,10 +49,24 @@ export async function startServer(options: StartServerOptions) {
     }
   })
 
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject)
-    server.listen(options.port, options.host, resolve)
-  })
+  try {
+    if (options.useVite) {
+      const { createServer: createViteServer } = await import("vite")
+      vite = await createViteServer({
+        configFile: path.join(options.packageRoot, "vite.config.ts"),
+        server: { middlewareMode: true, hmr: { server } },
+        appType: "spa",
+      })
+    }
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject)
+      server.listen(options.port, options.host, resolve)
+    })
+  } catch (error) {
+    projectEvents.close()
+    await vite?.close()
+    throw error
+  }
 
   return {
     store,
@@ -132,6 +138,12 @@ async function handleApiRequest(
     sendJson(response, 200, await store.readProject())
     return true
   }
+  const pageLanguage = url.pathname.match(/^\/api\/pages\/([^/]+)\/localizations\/([^/]+)$/)
+  if (request.method === "DELETE" && pageLanguage) {
+    await store.removePageLanguage(decodeURIComponent(pageLanguage[1]), decodeURIComponent(pageLanguage[2]))
+    sendJson(response, 200, await store.readProject())
+    return true
+  }
   const pageAction = url.pathname.match(/^\/api\/pages\/([^/]+)\/(localizations|prepare)$/)
   if (request.method === "POST" && pageAction) {
     const pageId = decodeURIComponent(pageAction[1])
@@ -140,69 +152,6 @@ async function handleApiRequest(
     else await store.preparePage(pageId, input.locale)
     sendJson(response, 200, await store.readProject())
     return true
-  }
-
-  if (request.method === "GET" && url.pathname === "/api/mockup-bundles") {
-    sendJson(response, 200, await store.listMockupCatalog())
-    return true
-  }
-
-  const mockupBundleImportFileMatch = url.pathname.match(/^\/api\/mockup-bundle-imports\/([^/]+)\/([^/]+)\/files\/(.+)$/)
-  if (request.method === "PUT" && mockupBundleImportFileMatch) {
-    const importId = decodeURIComponent(mockupBundleImportFileMatch[1])
-    const bundleId = decodeURIComponent(mockupBundleImportFileMatch[2])
-    const relativePath = mockupBundleImportFileMatch[3].split("/").map(decodeURIComponent).join("/")
-    await store.writeMockupBundleImportFile(importId, bundleId, relativePath, await readBody(request))
-    response.writeHead(204).end()
-    return true
-  }
-
-  const mockupBundleImportMatch = url.pathname.match(/^\/api\/mockup-bundle-imports\/([^/]+)\/([^/]+)$/)
-  if (request.method === "PUT" && mockupBundleImportMatch) {
-    const importId = decodeURIComponent(mockupBundleImportMatch[1])
-    const bundleId = decodeURIComponent(mockupBundleImportMatch[2])
-    await store.commitMockupBundleImport(importId, bundleId, await readJsonBody(request))
-    sendJson(response, 200, await store.listMockupCatalog())
-    return true
-  }
-
-  const mockupBundleImportDiscardMatch = url.pathname.match(/^\/api\/mockup-bundle-imports\/([^/]+)$/)
-  if (request.method === "DELETE" && mockupBundleImportDiscardMatch) {
-    await store.discardMockupBundleImport(decodeURIComponent(mockupBundleImportDiscardMatch[1]))
-    response.writeHead(204).end()
-    return true
-  }
-
-  const mockupBundleMatch = url.pathname.match(/^\/api\/mockup-bundles\/([^/]+)$/)
-  if (request.method === "PUT" && mockupBundleMatch) {
-    const bundleId = decodeURIComponent(mockupBundleMatch[1])
-    await store.writeMockupBundleManifest(bundleId, await readJsonBody(request))
-    sendJson(response, 200, await store.listMockupCatalog())
-    return true
-  }
-
-  const mockupBundleFileMatch = url.pathname.match(/^\/api\/mockup-bundle-files\/([^/]+)\/(.+)$/)
-  if (mockupBundleFileMatch) {
-    const bundleId = decodeURIComponent(mockupBundleFileMatch[1])
-    const relativePath = mockupBundleFileMatch[2].split("/").map(decodeURIComponent).join("/")
-    if (request.method === "PUT") {
-      await store.writeMockupBundleFile(bundleId, relativePath, await readBody(request))
-      response.writeHead(204).end()
-      return true
-    }
-    if (request.method === "GET") {
-      const target = await store.resolveExistingMockupBundleFile(bundleId, relativePath)
-      const metadata = await stat(target)
-      response.writeHead(200, {
-        "Content-Type": contentTypeFor(target),
-        "Content-Length": metadata.size,
-        "Cache-Control": "no-store",
-        "X-Content-Type-Options": "nosniff",
-        ...(path.extname(target).toLowerCase() === ".svg" ? { "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox" } : {}),
-      })
-      createReadStream(target).pipe(response)
-      return true
-    }
   }
 
   if (request.method === "POST" && url.pathname === "/api/assets") {
@@ -371,7 +320,7 @@ function assertAllowedBrowserRequest(request: IncomingMessage, configuredHost: s
   } catch {
     throw new HttpError(403, "The request origin is invalid")
   }
-  if ((originUrl.protocol !== "http:" && originUrl.protocol !== "https:") || originUrl.host !== host) {
+  if (originUrl.origin !== hostUrl.origin) {
     throw new HttpError(403, "Cross-origin API requests are not allowed")
   }
 }
@@ -385,7 +334,7 @@ function normalizedHostname(host: string): string {
 }
 
 function isLoopbackHostname(hostname: string): boolean {
-  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]"
 }
 
 function httpFailureFor(error: unknown, request: IncomingMessage): HttpError {
@@ -427,7 +376,7 @@ function contentTypeFor(filename: string): string {
   }
 }
 
-type ProjectChangeScope = "assets" | "config" | "mockups" | "project" | "sets"
+type ProjectChangeScope = "assets" | "config" | "project" | "sets"
 
 class ProjectEventHub {
   private readonly clients = new Set<ServerResponse>()
@@ -488,8 +437,6 @@ function changeScope(relativePath: string): ProjectChangeScope | undefined {
   if (relativePath === "storeshot.json" || relativePath.startsWith(".storeshot.json.")) return "config"
   if (relativePath === "sets" || relativePath.startsWith("sets/")) return "sets"
   if (relativePath === "assets" || relativePath.startsWith("assets/")) return "assets"
-  if (relativePath.startsWith("mockup-bundles/.imports/")) return undefined
-  if (relativePath === "mockup-bundles" || relativePath.startsWith("mockup-bundles/")) return "mockups"
   if (relativePath === "renders" || relativePath.startsWith("renders/")) return undefined
   return "project"
 }

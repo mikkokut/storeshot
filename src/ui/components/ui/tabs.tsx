@@ -1,6 +1,8 @@
 import { Tabs as TabsPrimitive } from "@base-ui/react/tabs"
 import { cn } from "@/lib/utils"
 
+type TabsVariant = "default" | "segmented" | "icon"
+
 export function Tabs({ className, ...props }: TabsPrimitive.Root.Props) {
   return (
     <TabsPrimitive.Root
@@ -14,11 +16,20 @@ export function TabsList({
   className,
   variant = "default",
   ...props
-}: TabsPrimitive.List.Props & { variant?: "default" | "icon" }) {
+}: TabsPrimitive.List.Props & { variant?: TabsVariant }) {
   return (
     <TabsPrimitive.List
       data-slot="tabs-list"
-      className={cn("flex gap-6", variant === "icon" && "min-w-max gap-0 border-b", className)}
+      data-variant={variant}
+      className={cn(
+        "flex",
+        variant === "default" && "gap-6",
+        variant === "segmented" &&
+          "inline-flex h-8 w-fit items-center gap-0.5 rounded-lg bg-muted p-0.5",
+        variant === "icon" &&
+          "w-fit min-w-max gap-1 rounded-xl bg-muted p-1",
+        className,
+      )}
       {...props}
     />
   )
@@ -27,13 +38,18 @@ export function TabsTrigger({
   className,
   variant = "default",
   ...props
-}: TabsPrimitive.Tab.Props & { variant?: "default" | "icon" }) {
+}: TabsPrimitive.Tab.Props & { variant?: TabsVariant }) {
   return (
     <TabsPrimitive.Tab
       data-slot="tabs-trigger"
       className={cn(
-        "relative inline-flex h-11 items-center justify-center border-b-2 border-transparent bg-transparent text-sm text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-active:border-primary data-active:font-semibold data-active:text-foreground",
-        variant === "icon" && "h-22 shrink-0 gap-3 px-5 pb-5 text-left first:pl-0 after:absolute after:top-2 after:right-0 after:h-9 after:w-px after:bg-border last:after:hidden",
+        "relative inline-flex shrink-0 items-center justify-center text-sm font-medium whitespace-nowrap text-muted-foreground outline-none transition-[color,background-color,box-shadow] select-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 data-active:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0",
+        variant === "default" &&
+          "h-11 gap-2 rounded-t-sm border-b-2 border-transparent data-active:border-foreground",
+        variant === "segmented" &&
+          "h-7 gap-1.5 rounded-md px-3 text-[13px] data-active:bg-background data-active:shadow-xs data-active:ring-1 data-active:ring-foreground/5",
+        variant === "icon" &&
+          "h-12 justify-start gap-2.5 rounded-lg px-3 text-left hover:bg-background/60 data-active:bg-background data-active:shadow-xs data-active:ring-1 data-active:ring-foreground/5",
         className,
       )}
       {...props}

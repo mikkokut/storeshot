@@ -1,11 +1,10 @@
 import assert from "node:assert/strict"
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdtemp, mkdir, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import test from "node:test"
 
 import { DuplicateAssetError, ProjectStore } from "../src/project-store.js"
-import type { MockupBundleManifest } from "../src/device-mockups.js"
 
 const png = (width: number, height: number) => {
   const contents = Buffer.alloc(24)
@@ -51,6 +50,8 @@ test("asset replacement is atomic and duplicate content in another file is rejec
     )
     assert.deepEqual((await store.readProject()).assets.screenshots[0]?.width, 1179)
     await assert.rejects(store.addAsset("screenshots", "broken.png", Buffer.from("not an image")), /valid supported image/)
+    for (const filename of ["../phone.png", "folder\\phone.png", ".phone.png", "C:phone.png"])
+      await assert.rejects(store.addAsset("screenshots", filename, png(100, 100)), /Unsupported asset filename/)
   })
 })
 
@@ -80,10 +81,11 @@ test("artboard HTML is canonical on disk and survives metadata changes", async (
     await writeFile(filename, html)
     const updated = await store.updateSetMetadata(set.id, { name: "Renamed", locale: "fi", device: "iPhone" })
     assert.equal(updated.areas[0].html, html)
-    const manifest = JSON.parse(await readFile(path.join(store.setsPath, `${set.id}.json`), "utf8"))
+    const manifest = JSON.parse(await readFile(path.join(store.setsPath, set.id, "index.json"), "utf8"))
     assert.equal(manifest.version, 3)
-    assert.equal(manifest.areas[0].html, undefined)
-    assert.equal(manifest.areas[0].file, `${set.id}/${set.areas[0].id}.html`)
+    assert.deepEqual(manifest.areas, [set.areas[0].id])
+    assert.equal(manifest.id, undefined)
+    assert.deepEqual(JSON.parse(await readFile(path.join(store.setsPath, set.id, `${set.areas[0].id}.json`), "utf8")), { name: "Screenshot 1" })
     await assert.rejects(store.writeSet(set.id, { ...set, areas: [{ ...set.areas[0], id: "../escape" }] }), /area id/)
     await assert.rejects(store.writeSet(set.id, { ...set, areas: [set.areas[0], set.areas[0]] }), /duplicate/)
     await rm(filename)
@@ -134,50 +136,140 @@ test("initialization rejects a managed directory that is a symbolic link", async
   }
 })
 
+test("asset reads and mutations reject symlinked parent directories", async () => {
+  await withStore(async (store) => {
+    const outside = await mkdtemp(path.join(tmpdir(), "storeshot-outside-"))
+    const contents = png(1290, 2796)
+    try {
+      await mkdir(path.join(outside, "screenshots"))
+      const filename = path.join(outside, "screenshots/private.png")
+      await writeFile(filename, contents)
+      await rm(path.join(store.assetsPath, "screenshots"), { recursive: true })
+      await symlink(path.join(outside, "screenshots"), path.join(store.assetsPath, "screenshots"))
+      await assert.rejects(store.resolveExistingAsset("screenshots", "private.png"), /regular project directory/)
+      await assert.rejects(store.deleteAsset("screenshots", "private.png"), /regular project directory/)
+      await assert.rejects(store.updateAssetMetadata("screenshots", "private.png", { deviceType: "ipad" }), /regular project directory/)
+      await rm(store.assetsPath, { recursive: true })
+      await symlink(outside, store.assetsPath)
+      await assert.rejects(store.resolveExistingAsset("screenshots", "private.png"), /regular project directory/)
+      await assert.rejects(store.deleteAsset("screenshots", "private.png"), /regular project directory/)
+      assert.deepEqual(await readFile(filename), contents)
+    } finally { await rm(outside, { recursive: true, force: true }) }
+  })
+})
+
+test("failed page and language copies restore config and remove partial folders", async () => {
+  await withStore(async (store) => {
+    const first = await store.createSet({ name: "Phone", locale: "en-US", device: "iPhone", width: 1206, height: 2622 })
+    const second = await store.createSet({ name: "Tablet", locale: "en-US", device: "iPad", width: 2064, height: 2752 })
+    const resource = path.join(store.setsPath, second.id, "linked.css")
+    await symlink(store.configPath, resource)
+    const config = await store.readConfig()
+    const folders = (await readdir(store.setsPath)).sort()
+    await assert.rejects(store.createPage({ name: "Copy", sourcePageId: first.pageId }), /symbolic links/)
+    assert.deepEqual(await store.readConfig(), config)
+    assert.deepEqual((await readdir(store.setsPath)).sort(), folders)
+    await assert.rejects(store.localizePage(first.pageId, { locale: "fi", sourceLocale: "en-US" }), /symbolic links/)
+    assert.deepEqual(await store.readConfig(), config)
+    assert.deepEqual((await readdir(store.setsPath)).sort(), folders)
+    assert.equal((await store.listSets()).length, 2)
+  })
+})
+
 test("JSON writes do not leave temporary files behind", async () => {
   await withStore(async (store) => {
     await store.writeConfig(await store.readConfig())
     const set = await store.createSet({ name: "English Mac", locale: "en-US", device: "Mac", width: 2880, height: 1800 })
     await store.writeSet(set.id, set)
-    const contents = await readFile(path.join(store.setsPath, `${set.id}.json`), "utf8")
-    assert.equal(JSON.parse(contents).id, set.id)
+    const contents = await readFile(path.join(store.setsPath, set.id, "index.json"), "utf8")
+    assert.equal(JSON.parse(contents).id, undefined)
   })
 })
 
-test("mockup bundle imports become visible only after a complete atomic commit", async () => {
+
+test("set folders can be renamed without editing metadata or screenshot files", async () => {
   await withStore(async (store) => {
-    const manifest: MockupBundleManifest = {
-      format: "storeshot-mockup-bundle",
-      version: 1,
-      id: "test-bundle",
-      name: "Test bundle",
-      author: "StoreShot tests",
-      license: { name: "MIT" },
-      mockups: [{
-        id: "test-phone",
-        groupId: "test-phone",
-        groupName: "Test phone",
-        name: "Test phone",
-        description: "Standard",
-        platform: "iphone",
-        style: "standard",
-        frame: "assets/frame.svg",
-        width: 100,
-        height: 200,
-        screen: { kind: "rect", x: 5, y: 5, width: 90, height: 190, cornerRadius: 10 },
-      }],
-    }
-    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="200"><rect width="100" height="200"/></svg>')
-    await store.writeMockupBundleImportFile("import-one", manifest.id, "assets/frame.svg", svg)
-    assert.equal((await store.listMockupCatalog()).mockups.length, 0)
+    const source = await store.createSet({ name: "Rename", locale: "en-US", device: "iPhone", width: 400, height: 800 })
+    const second = { id: "second", name: "Second", html: "<!doctype html><body>Second</body>" }
+    await store.addArea(source.id, second)
+    const directory = path.join(store.setsPath, source.id)
+    const manifestPath = path.join(directory, "index.json")
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"))
+    manifest.areas.reverse()
+    await writeFile(manifestPath, JSON.stringify(manifest))
+    await writeFile(path.join(directory, "second.json"), JSON.stringify({ name: "Edited directly" }))
+    await rename(directory, path.join(store.setsPath, "renamed"))
+    const [set] = await store.listSets()
+    assert.equal(set.id, "renamed")
+    assert.deepEqual(set.areas.map(({ id }) => id), ["second", source.areas[0].id])
+    assert.equal(set.areas[0].name, "Edited directly")
+    assert.equal(set.areas[0].html, second.html)
+    await store.updateSetMetadata(set.id, { name: "Renamed", locale: "en-US", device: "iPhone" })
+    assert.equal((await store.readSet(set.id)).areas[0].html, second.html)
+    await store.deleteSet(set.id)
+    assert.deepEqual(await store.listSets(), [])
+    assert.equal(await readFile(path.join(store.setsPath, "renamed", "second.html"), "utf8"), second.html)
+  })
+})
 
-    await store.commitMockupBundleImport("import-one", manifest.id, manifest)
-    assert.deepEqual((await store.listMockupCatalog()).mockups.map((mockup) => mockup.id), ["test-bundle/test-phone"])
+test("screenshot metadata and set directories cannot escape through symbolic links", async () => {
+  await withStore(async (store) => {
+    const set = await store.createSet({ name: "Safe", locale: "en-US", device: "iPhone", width: 400, height: 800 })
+    const metadata = path.join(store.setsPath, set.id, `${set.areas[0].id}.json`)
+    await rm(metadata)
+    await symlink(store.configPath, metadata)
+    await assert.rejects(store.readSet(set.id), /regular files/)
+    await assert.rejects(store.writeSet(set.id, set), /regular files/)
+    await rm(metadata)
+    await writeFile(metadata, JSON.stringify({ name: "Restored" }))
+    await symlink(path.join(store.setsPath, set.id), path.join(store.setsPath, "linked"))
+    await assert.rejects(store.readSet("linked"), /regular project directory/)
+    await assert.rejects(store.writeSet("linked", { ...set, id: "linked" }), /regular project directory/)
+    await assert.rejects(store.writeSet(set.id, { ...set, areas: [{ ...set.areas[0], id: "index" }] }), /area id/)
+  })
+})
 
-    const broken = structuredClone(manifest)
-    broken.mockups[0].frame = "assets/missing.svg"
-    await store.writeMockupBundleImportFile("import-two", manifest.id, "assets/frame.svg", svg)
-    await assert.rejects(store.commitMockupBundleImport("import-two", manifest.id, broken))
-    assert.deepEqual((await store.listMockupCatalog()).mockups.map((mockup) => mockup.id), ["test-bundle/test-phone"])
+
+test("short stable area IDs allow descriptive filename suffixes without changing JSON order", async () => {
+  await withStore(async (store) => {
+    const set = await store.createSet({ name: "Slugs", locale: "en-US", device: "iPhone", width: 400, height: 800 })
+    const area = set.areas[0]
+    assert.match(area.id, /^[0-9a-f]{8}$/)
+    const directory = path.join(store.setsPath, set.id)
+    const manifest = await readFile(path.join(directory, "index.json"), "utf8")
+    for (const extension of ["json", "html"])
+      await rename(path.join(directory, `${area.id}.${extension}`), path.join(directory, `${area.id}-home-screen.${extension}`))
+    assert.equal((await store.readSet(set.id)).areas[0].id, area.id)
+    assert.equal(await readFile(path.join(directory, "index.json"), "utf8"), manifest)
+    const updated = { ...set, areas: [{ ...area, name: "Home screen", html: "<h1>Updated</h1>" }] }
+    await store.writeSet(set.id, updated)
+    assert.equal(await store.resolveAreaHtmlFile(set.id, area.id), path.join(directory, `${area.id}-home-screen.html`))
+    assert.equal(await readFile(path.join(directory, `${area.id}-home-screen.html`), "utf8"), updated.areas[0].html)
+    const copy = await store.duplicateSet(set.id)
+    assert.equal((await store.readSet(copy.id)).areas[0].html, updated.areas[0].html)
+    assert.equal(path.basename(await store.resolveAreaHtmlFile(copy.id, area.id)), `${area.id}-home-screen.html`)
+    await writeFile(path.join(directory, `${area.id}-another.json`), JSON.stringify({ name: "Ambiguous" }))
+    await assert.rejects(store.readSet(set.id), /Ambiguous filenames/)
+    await assert.rejects(store.writeSet(set.id, updated), /Ambiguous filenames/)
+  })
+})
+
+test("area IDs with a shared prefix keep their own files and descriptive suffixes", async () => {
+  await withStore(async (store) => {
+    const set = await store.createSet({ name: "Prefixes", locale: "en-US", device: "Phone", width: 400, height: 800 })
+    const areas = [
+      { id: "hero", name: "Hero", html: "<h1>Hero</h1>" },
+      { id: "hero-detail", name: "Detail", html: "<h1>Detail</h1>" },
+    ]
+    await store.writeSet(set.id, { ...set, areas })
+    const directory = path.join(store.setsPath, set.id)
+    for (const area of areas) for (const extension of ["json", "html"])
+      await rename(path.join(directory, `${area.id}.${extension}`), path.join(directory, `${area.id}-composition.${extension}`))
+    assert.deepEqual((await store.readSet(set.id)).areas, areas)
+    for (const area of areas)
+      assert.equal(await store.resolveAreaHtmlFile(set.id, area.id), path.join(directory, `${area.id}-composition.html`))
+    await store.updateSetMetadata(set.id, { name: "Renamed", locale: "en-US", device: "Phone" })
+    assert.deepEqual((await store.readSet(set.id)).areas, areas)
+    assert.deepEqual((await store.duplicateSet(set.id)).areas, areas)
   })
 })

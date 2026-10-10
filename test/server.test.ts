@@ -1,10 +1,33 @@
 import assert from "node:assert/strict"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { execFile } from "node:child_process"
+import { mkdtemp, rename, rm, writeFile } from "node:fs/promises"
+import { request as httpRequest } from "node:http"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import test from "node:test"
+import { promisify } from "node:util"
 
 import { startServer } from "../src/server.js"
+
+test("failed server startup releases its watcher and lets the CLI exit", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "storeshot-server-startup-"))
+  const service = await startServer({ host: "127.0.0.1", port: 0, packageRoot: process.cwd(), projectDirectory: directory, useVite: false })
+  try {
+    const source = `import { startServer } from './src/server.ts';
+      try { await startServer(${JSON.stringify({ host: "127.0.0.1", port: service.port, packageRoot: process.cwd(), projectDirectory: directory, useVite: false })}) }
+      catch (error) { console.error(error.code); process.exitCode = 1 }`
+    await assert.rejects(promisify(execFile)(process.execPath, ["--import", "tsx", "--input-type=module", "-e", source], { timeout: 10_000 }), (error: unknown) => {
+      const failure = error as { code: number; killed: boolean; stderr: string }
+      assert.equal(failure.code, 1)
+      assert.equal(failure.killed, false)
+      assert.match(failure.stderr, /EADDRINUSE/)
+      return true
+    })
+  } finally {
+    await service.close()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
 
 test("local API returns typed client errors and hides unexpected failures", async () => {
   const projectDirectory = await mkdtemp(path.join(tmpdir(), "storeshot-server-test-"))
@@ -19,6 +42,10 @@ test("local API returns typed client errors and hides unexpected failures", asyn
 
   try {
     assert.equal((await fetch(`${baseUrl}/api/project`)).status, 200)
+    assert.equal((await fetch(`${baseUrl}/api/project`, { headers: { Origin: baseUrl } })).status, 200)
+    assert.equal(await statusWithHost(`${baseUrl}/api/project`, `[::1]:${service.port}`), 200)
+    assert.equal(await statusWithHost(`${baseUrl}/api/project`, "example.com"), 403)
+    assert.equal((await fetch(`${baseUrl}/api/project`, { headers: { Origin: baseUrl.replace("http:", "https:") } })).status, 403)
 
     const crossOrigin = await fetch(`${baseUrl}/api/project`, { headers: { Origin: "https://example.com" } })
     assert.equal(crossOrigin.status, 403)
@@ -52,6 +79,15 @@ test("local API returns typed client errors and hides unexpected failures", asyn
   }
 })
 
+function statusWithHost(url: string, host: string): Promise<number | undefined> {
+  return new Promise((resolve, reject) => {
+    httpRequest(url, { headers: { Host: host } }, (response) => {
+      response.resume()
+      resolve(response.statusCode)
+    }).on("error", reject).end()
+  })
+}
+
 test("local API streams project file changes to an open preview", async () => {
   const projectDirectory = await mkdtemp(path.join(tmpdir(), "storeshot-server-events-test-"))
   const service = await startServer({
@@ -71,7 +107,7 @@ test("local API streams project file changes to an open preview", async () => {
     const decoder = new TextDecoder()
     await readEventUntil(reader, decoder, "event: ready")
 
-    await writeFile(path.join(projectDirectory, "storeshot.json"), `${JSON.stringify({ version: 1, appName: "Changed", platforms: ["ios"] }, null, 2)}\n`)
+    await writeFile(path.join(projectDirectory, "storeshot.json"), `${JSON.stringify({ version: 2, pages: [{ id: "changed", name: "Changed", store: "app-store", localizations: [] }] }, null, 2)}\n`)
     const event = await readEventUntil(reader, decoder, "event: project")
     assert.match(event, /"config"/)
   } finally {
@@ -126,6 +162,17 @@ test("artboard resources stay inside the project and disk HTML edits emit events
     assert.match(await readEventUntil(reader, decoder, "event: project"), /"sets"/)
     assert.equal(await (await fetch(url)).text(), html)
     assert.equal((await service.store.readSet(set.id)).areas[0].html, html)
+    await writeFile(path.join(service.store.setsPath, set.id, `${set.areas[0].id}.json`), JSON.stringify({ name: "Edited metadata" }))
+    assert.match(await readEventUntil(reader, decoder, "event: project"), /"sets"/)
+    for (const extension of ["json", "html"])
+      await rename(path.join(service.store.setsPath, set.id, `${set.areas[0].id}.${extension}`), path.join(service.store.setsPath, set.id, `${set.areas[0].id}-home-screen.${extension}`))
+    assert.equal(await (await fetch(url)).text(), html)
+    await rename(path.join(service.store.setsPath, set.id), path.join(service.store.setsPath, "renamed"))
+    assert.match(await readEventUntil(reader, decoder, "event: project"), /"sets"/)
+    const project = await (await fetch(`${base}/api/project`)).json()
+    assert.equal(project.sets[0].id, "renamed")
+    assert.equal(project.sets[0].areas[0].name, "Edited metadata")
+    assert.equal(await (await fetch(`${base}/artboards/sets/renamed/${set.areas[0].id}.html`)).text(), html)
   } finally {
     controller.abort()
     await service.close()
@@ -145,7 +192,7 @@ test("App Store API prepares, localizes and clones page collections with validat
     assert.equal(project.sets[0].specId, "iphone")
     assert.equal((await post("/api/pages/default/localizations", { locale: "fi", sourceLocale: "en-US" })).status, 200)
     assert.equal((await post("/api/pages/default/localizations", { locale: "fi" })).status, 400)
-    const copy = await post("/api/pages", { kind: "custom", name: "Campaign", sourcePageId: "default" })
+    const copy = await post("/api/pages", { name: "Campaign", sourcePageId: "default" })
     assert.equal(copy.status, 201)
     const body = await copy.json() as { page: { localizations: string[] }; project: { sets: unknown[] } }
     assert.deepEqual(body.page.localizations,["en-US","fi"])
@@ -153,5 +200,13 @@ test("App Store API prepares, localizes and clones page collections with validat
     const status = await fetch(`${base}/api/app-store`).then((response)=>response.json()) as { issues: {code:string}[] }
     assert.equal(status.issues.length,0)
     assert.equal((await post("/api/pages/default/prepare", { locale: "../escape" })).status,400)
+    const removed = await fetch(`${base}/api/pages/default/localizations/fi`, { method: "DELETE" })
+    assert.equal(removed.status, 200)
+    const remaining = await removed.json() as { config: { pages: { id: string; localizations: string[] }[] }; sets: { pageId: string; locale: string }[] }
+    assert.deepEqual(remaining.config.pages.find((page) => page.id === "default")?.localizations, ["en-US"])
+    assert.ok(!remaining.sets.some((set) => set.pageId === "default" && set.locale === "fi"))
+    assert.equal(remaining.sets.length, 3)
+    assert.equal((await fetch(`${base}/api/pages/default/localizations/fi`, { method: "DELETE" })).status, 400)
+    assert.equal((await fetch(`${base}/api/pages/missing/localizations/fi`, { method: "DELETE" })).status, 400)
   } finally { await service.close(); await rm(directory,{recursive:true,force:true}) }
 })

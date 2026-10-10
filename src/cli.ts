@@ -1,3 +1,4 @@
+import { registerAssetCatalogCommands } from "./asset-cli.js"
 import {
   ASSET_SPECS,
   CREATION_SPECS,
@@ -12,7 +13,7 @@ import { access, readFile } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { Command, Option } from "commander"
+import { Command, CommanderError, Option } from "commander"
 import open from "open"
 
 import {
@@ -49,6 +50,12 @@ export function createCli(): Command {
     )
     .option("-C, --project <directory>", "project directory", ".")
     .option("--json", "write machine-readable JSON")
+    .exitOverride()
+    .configureOutput({
+      writeErr: (message) => {
+        if (!process.argv.includes("--json")) process.stderr.write(message)
+      },
+    })
     .showSuggestionAfterError()
     .addHelpText(
       "after",
@@ -59,8 +66,10 @@ Agent workflow:
   storeshot -C ./screenshots set show <id>
   storeshot -C ./screenshots render --set <id> --scale 0.25 --json
 
-Edit artboard HTML/CSS in sets/<set-id>/<area-id>.html. The workspace
-updates automatically. Run "migrate" once to upgrade old projects.`,
+Set metadata is in sets/<set-id>/index.json; screenshot metadata is in
+sets/<set-id>/<area-id>[-slug].json. Edit HTML/CSS in the matching .html file.
+New area IDs are eight characters; rename optional suffixes on both files together. The workspace
+updates automatically.`,
     )
 
   program
@@ -107,7 +116,6 @@ updates automatically. Run "migrate" once to upgrade old projects.`,
         },
         appStore: {
           pages: project.config.pages,
-          tests: project.config.tests,
           issues: readinessIssues(project.config, project.sets),
         },
         sets: project.sets.map((set) => ({
@@ -117,7 +125,7 @@ updates automatically. Run "migrate" once to upgrade old projects.`,
           device: set.device,
           canvas: set.canvas,
           areas: set.areas.length,
-          path: path.join(store.setsPath, `${set.id}.json`),
+          path: path.join(store.setsPath, set.id, "index.json"),
         })),
       }
       const lines = [
@@ -134,12 +142,10 @@ updates automatically. Run "migrate" once to upgrade old projects.`,
   program
     .command("validate")
     .description("Validate project files and cross-references")
+    .option("--page <id>", "report one page's issues plus shared project checks")
     .option("--strict", "treat warnings as failures")
-    .action(async (options: { strict?: boolean }) => {
-      const validation = await validateProject(
-        projectDirectory(program),
-        packageRoot,
-      )
+    .action(async (options: { strict?: boolean; page?: string }) => {
+      const validation = await validateProject(projectDirectory(program), { pageId: options.page })
       const failed =
         !validation.report.ok ||
         Boolean(options.strict && validation.report.warnings.length > 0)
@@ -185,7 +191,7 @@ updates automatically. Run "migrate" once to upgrade old projects.`,
         chrome?: string
       }) => {
         const directory = projectDirectory(program)
-        const validation = await validateProject(directory, packageRoot)
+        const validation = await validateProject(directory)
         if (!validation.report.ok || !validation.assets) {
           emit(program, formatValidation(validation.report), {
             ...validation.report,
@@ -236,25 +242,6 @@ updates automatically. Run "migrate" once to upgrade old projects.`,
       },
     )
 
-  program
-    .command("migrate")
-    .description(
-      "Migrate legacy layer / HTML projects to the App Store workspace, preserving backups",
-    )
-    .argument("[directory]", "project directory")
-    .action(async (directory?: string) => {
-      const { migrateProject } = await import("./migrate.js")
-      const result = await migrateProject(
-        path.resolve(directory ?? projectDirectory(program)),
-        packageRoot,
-      )
-      emit(
-        program,
-        `Migrated ${result.migrated.length} sets; skipped ${result.skipped.length} already migrated sets.\n${result.backups.map((file) => `Backup: ${file}`).join("\n")}\n${result.warnings.map((warning) => `Review: ${warning}`).join("\n")}`,
-        { ok: true, ...result },
-      )
-    })
-
   configurePageCommands(program)
   configureConfigCommands(program)
   configureSetCommands(program)
@@ -275,41 +262,34 @@ function configurePageCommands(program: Command): void {
     )
   const page = program
     .command("page")
-    .description("Manage product pages, optimization treatments and languages")
+    .description("Manage product pages and languages")
   page.command("list").action(async () => {
     const config = await (await openProject(program)).readConfig()
     emitDocument(program, config.pages, {
       ok: true,
       pages: config.pages,
-      tests: config.tests,
     })
   })
   page
     .command("create")
     .requiredOption("--name <name>")
     .addOption(
-      new Option("--kind <kind>")
-        .choices(["custom", "treatment"])
-        .default("custom"),
+      new Option("--store <store>", "product page store (Google Play is coming later)")
+        .choices(["app-store"])
+        .default("app-store"),
     )
-    .option("--source <page>", "copy compatible artwork from this page")
-    .option("--test <id>", "existing optimization test")
-    .option("--test-name <name>", "create a new optimization test")
+    .option("--source <page>", "copy artwork from this page")
     .action(
       async (options: {
         name: string
-        kind: CreatePageInput["kind"]
+        store: CreatePageInput["store"]
         source?: string
-        test?: string
-        testName?: string
       }) => {
         const store = await openProject(program)
         const value = await store.createPage({
           name: options.name,
-          kind: options.kind,
+          store: options.store,
           sourcePageId: options.source,
-          testId: options.test,
-          testName: options.testName,
         })
         emitDocument(program, value, { ok: true, page: value })
       },
@@ -391,7 +371,7 @@ function configureSetCommands(program: Command): void {
       emitDocument(program, value, {
         ok: true,
         set: value,
-        path: path.join(store.setsPath, `${id}.json`),
+        path: path.join(store.setsPath, id, "index.json"),
       })
     })
 
@@ -405,12 +385,12 @@ function configureSetCommands(program: Command): void {
         .choices(CREATION_SPECS.map((spec) => spec.id))
         .default("iphone"),
     )
-    .option("--page <id>", "product page id", "default")
+    .option("--page <id>", "product page id (default: first page)")
     .option("--spec <id>", "App Store asset specification (see specs)")
     .option("--device <name>", "device label")
     .action(
       async (options: {
-        page: string
+        page?: string
         spec?: string
         name: string
         locale: string
@@ -435,7 +415,7 @@ function configureSetCommands(program: Command): void {
         })
         emit(
           program,
-          `Created ${value.id} at ${path.join(store.setsPath, `${value.id}.json`)}`,
+          `Created ${value.id} at ${path.join(store.setsPath, value.id, "index.json")}`,
           { ok: true, set: value },
         )
       },
@@ -497,7 +477,7 @@ function configureSetCommands(program: Command): void {
         throw new Error(`Set input id ${value.id} does not match ${id}`)
       const store = await openProject(program)
       const saved = await store.writeSet(id, value)
-      emit(program, `Wrote ${path.join(store.setsPath, `${id}.json`)}`, {
+      emit(program, `Wrote ${path.join(store.setsPath, id, "index.json")}`, {
         ok: true,
         set: saved,
       })
@@ -529,7 +509,9 @@ function configureAssetCommands(program: Command): void {
   const asset = program
     .command("asset")
     .alias("assets")
-    .description("List, add, classify, or remove project assets")
+    .description("Search, import, inspect, and manage assets")
+
+  registerAssetCatalogCommands(asset, { packageRoot, projectDirectory: () => projectDirectory(program), openProject: () => openProject(program), emit: (human, json) => emit(program, human, json) })
 
   asset
     .command("list")
@@ -552,7 +534,7 @@ function configureAssetCommands(program: Command): void {
           : assets
               .map(
                 (value) =>
-                  `${value.id}\t${value.width ?? "?"}x${value.height ?? "?"}\t${value.size} bytes`,
+                  `${value.id}\t${value.width ?? "?"}x${value.height ?? "?"}\t${value.size} bytes\t${value.checksum}`,
               )
               .join("\n"),
         { ok: true, assets },
@@ -816,9 +798,10 @@ function collect(value: string, previous: string[]): string[] {
 
 const program = createCli()
 program.parseAsync().catch((error: unknown) => {
+  if (error instanceof CommanderError && error.exitCode === 0) return
   const message = error instanceof Error ? error.message : String(error)
-  if (globalOptions(program).json)
+  if (globalOptions(program).json || process.argv.includes("--json"))
     console.error(JSON.stringify({ ok: false, error: { message } }, null, 2))
-  else console.error(`storeshot: ${message}`)
-  process.exitCode = 1
+  else if (!(error instanceof CommanderError)) console.error(`storeshot: ${message}`)
+  process.exitCode = error instanceof CommanderError ? error.exitCode : 1
 })

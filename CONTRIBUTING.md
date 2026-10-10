@@ -40,7 +40,7 @@ npm run storeshot -- dev /tmp/storeshot-project --no-open
   abstractions. The `0.x` format may evolve when a cleaner design warrants it.
 - Prefer the existing source-owned shadcn/Base UI components for interactive UI.
 - Do not commit `dist/`, `node_modules/`, `playground/` contents, or local
-  `mockup-bundles/` and `element-bundles/` archives.
+  asset archives. Shipped assets and metadata belong under `catalog/`.
 
 ## Licensing new dependencies and assets
 
@@ -54,6 +54,7 @@ its intended use and distribution.
 - Preserve upstream copyright notices and license files for bundled artwork,
   fonts, and mockups.
 - Record an asset's source URL and exact revision in its local README or manifest.
+- Run `npm run check:catalog` when editing shipped assets or their metadata.
 - Do not add assets copied from commercial products or websites without explicit
   redistribution permission.
 

@@ -30,8 +30,7 @@ storeshot -C ./app-store-screenshots status --json
 storeshot dev ./app-store-screenshots
 ```
 
-An open `dev` workspace watches `storeshot.json`, `sets/`, `assets/`, and
-`mockup-bundles/`. CLI changes and direct filesystem edits are streamed to the
+An open `dev` workspace watches `storeshot.json`, `sets/`, and `assets/`. CLI changes and direct filesystem edits are streamed to the
 browser, so an open set and its preview update without restarting the server.
 
 ## Recommended agent loop
@@ -65,40 +64,59 @@ storeshot -C ./screenshots render --set english-iphone-a1b2c3d4 --clean
 `set show` returns a hydrated JSON document with each area's `html` string.
 `set write --file -` accepts that shape from stdin; `--file <path>` accepts a
 JSON file. It saves HTML files and the manifest, refreshing `updatedAt`.
-For everyday design edits, edit HTML files directly. The disk manifest uses
-`file` references instead of `html` strings:
+For everyday design edits, edit HTML files directly. Each collection lives in
+`sets/<set-id>/`. Its `index.json` stores metadata and ordered area IDs:
 
 ```json
 {
   "version": 3,
   "pageId": "default",
   "specId": "iphone",
-  "id": "english-iphone",
   "name": "English iPhone",
   "locale": "en-US",
   "device": "iPhone",
   "canvas": { "width": 1206, "height": 2622 },
-  "areas": [{ "id": "hero", "name": "Hero", "file": "english-iphone/hero.html" }],
+  "areas": ["hero"],
   "createdAt": "2026-01-01T00:00:00.000Z",
   "updatedAt": "2026-01-01T00:00:00.000Z"
 }
 ```
 
-File paths must be exactly `<set-id>/<area-id>.html`. Add or reorder artboards
-by editing the manifest; the workspace's Add screenshot button also creates a file.
+Each screenshot has `sets/<set-id>/<area-id>.json` (for example,
+`{ "name": "Hero" }`) and a matching `<area-id>.html`. Neither JSON document stores
+file paths or its own ID: the set ID comes from the folder name and the screenshot
+ID comes from its filenames. Newly created screenshot IDs are eight hexadecimal
+characters. An optional descriptive slug can follow the ID: `a1b2c3d4-home-screen.json`
+and `a1b2c3d4-home-screen.html` still belong to area `a1b2c3d4`. Rename the suffix on
+both files together without editing the order array; metadata and artwork edits
+preserve that suffix. Use one matching filename stem per ID; ambiguous pairs fail
+validation. Rename a set folder without editing its contents;
+use the new folder name with CLI commands. IDs must start with a lowercase letter or number and contain only lowercase
+letters, numbers, or hyphens; `index` is reserved and cannot be a screenshot ID.
+
+Add a screenshot by creating both files and adding its ID to `index.json`'s
+`areas` array. Reorder screenshots by reordering that array, or use `set write`
+to save a complete collection document.
 Relative resource paths resolve from each HTML file. Shared resources under
 `assets/` remain usable when duplicating sets. Deleting a set removes its
-manifest; its HTML folder is retained for recovery.
+`index.json`; its screenshot files and resources are retained for recovery.
 
-## Migration
+## Shipped asset catalog
 
-Run `storeshot migrate <directory>` (or `-C <directory> migrate`) once for
-version 1 layer projects or version 2 HTML collections. It preserves originals as
-`.v1.bak` / `.v2.bak`, emits version 2 app configuration and version 3 collection
-manifests, and skips already migrated collections. Existing HTML is preserved. `--json` reports
-migrated ids, skipped files, backup paths, and assignment warnings. See the README for recovery and
-hosted-font details. Layer-to-HTML migration requires Chrome (or `STORESHOT_CHROME`) and a
-network connection for hosted fonts so it can measure the original text layout.
+```bash
+storeshot asset search "iphone 17" --kind mockup --platform iphone --json
+storeshot asset show frameup-free-iphone-17-pro --json
+storeshot -C ./screenshots asset import frameup-free-iphone-17-pro tabler-sparkles --json
+storeshot -C ./screenshots asset installed --json
+storeshot -C ./screenshots asset inspect other/frameup-free-iphone-17-pro.svg --json
+```
+
+Search and show work without a project. Imports reuse files with matching
+SHA-256 checksums, save geometry and license information locally, and require
+`--replace` to overwrite different contents at the default target. `asset list`
+includes local checksums; `installed` and `inspect` also recognize renamed or
+manually copied files in nested asset folders. See [asset catalog](asset-catalog.md)
+for metadata, geometry, and installation status semantics.
 
 ## Validation
 
@@ -112,6 +130,15 @@ on missing resources. Review rendered output for browser layout differences.
 
 Warnings do not fail validation by default. Use `--strict` in CI when warnings
 should also produce a non-zero exit status.
+
+Use `validate --page PAGE_ID --json` to report one page's collection semantics
+and App Store readiness. Device requirements still derive from the whole project;
+other pages' readiness warnings are omitted. Shared config/assets and structural
+errors (including unreadable collections on other pages) remain checked. JSON
+includes `pageId`; set/area counts cover the selected page and asset counts remain
+project-wide. An unknown page fails validation. Omit `--page` for the complete
+project report; `--strict` works with either scope. Rendering continues to validate
+the whole project.
 
 ## Rendering
 
@@ -138,7 +165,7 @@ project files are never removed.
 
 Install Google Chrome, or point `STORESHOT_CHROME` / `render --chrome <path>`
 at a Chromium executable. No browser is downloaded with the package. The UI's
-Export PNGs action uses the same renderer through the local service.
+Export all languages action uses the same renderer through the local service.
 
 Use inline CSS, local or HTTP/HTTPS stylesheets, and local or hosted `@font-face`
 URLs. Normal CSS links and `@import` work with Bunny Fonts or any other provider.
@@ -152,7 +179,6 @@ Common structured edits do not require hand-editing JSON:
 
 ```bash
 storeshot -C ./screenshots config get
-storeshot -C ./screenshots config set macos
 
 storeshot -C ./screenshots set list --json
 storeshot -C ./screenshots set create --name "Finnish iPhone" \
@@ -175,7 +201,10 @@ makes destructive intent visible in agent transcripts and shell history.
 
 Use `storeshot <command> --help` for the complete option list.
 
-## App Store pages, treatments, and languages
+## Product pages and languages
+
+All pages behave the same and persist their selected store. `page create`
+accepts `--store app-store` (the default); Google Play is coming later.
 
 ```bash
 # Device destinations are selected when creating artwork.
@@ -185,11 +214,8 @@ storeshot -C ./screenshots page prepare default --locale en-US
 # Copy all device/creative collections into a language for translation review.
 storeshot -C ./screenshots page localize default --locale fi --from en-US
 
-# Copy compatible artwork into independent audience variations or PPO treatments.
-storeshot -C ./screenshots page create --kind custom --name "Travel" --source default
-storeshot -C ./screenshots page create --kind treatment --name "Benefit first" \
-  --test-name "First impression" --source default
-# More treatments use --test <test-id>; max three per test.
+# Copy artwork for all devices into independent product pages.
+storeshot -C ./screenshots page create --name "Travel" --source default
 storeshot -C ./screenshots page list --json
 
 # Prepare optional creative artwork at a validated Apple size.
@@ -204,16 +230,16 @@ storeshot -C ./screenshots render --locale fi
 ```
 
 `page prepare` fills missing required screenshot slots without replacing existing
-artwork. Creation uses one fixed size per currently required device and omits optional
-and upcoming display slots. Source images are used for the page’s first language;
+artwork. Creation uses one fixed size per required display, including both iPhone Duo
+outer and inner displays, and omits optional display slots. Source images are used for the page’s first language;
 other languages start with independent drafts. Standard iPhone compositions do not
 reuse Duo captures. These are draft
-compositions, not finished screenshots. Use the browser composer or HTML edits to finish imagery and copy. `page localize` copies source files, never translates
+compositions, not finished screenshots. Edit the HTML/CSS files to finish imagery and copy. `page localize` copies source files, never translates
 text automatically. Copies record their source language.
 
 `set` is the low-level collection command. One collection occupies one page/language/
-specification slot. `set duplicate` places its independent copy on a new custom page.
-Use `set write` or the browser's Destination action to reassign migrated artwork.
+specification slot. Without `--page`, new artwork uses the first page in the project; create a page first if the project has none. `set duplicate` places its independent copy on a new product page.
+Use `set update --page PAGE_ID --spec SPEC_ID` or `set write` to reassign artwork without resizing it.
 Unassigned artwork remains renderable, but does not satisfy App Store coverage.
 
 A render below scale 1 is a preview, never an upload asset. Each output directory
