@@ -98,4 +98,13 @@ jobs:
         if: >-
           steps.release.outputs.release_created == 'true' &&
           steps.registry.outputs.already-published != 'true'
-        run: npm publish --ignore-scripts
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          npm_tag=latest
+          if [[ "${RELEASE_VERSION%%+*}" == *-* ]]; then
+            npm_tag=next
+          fi
+
+          npm publish --ignore-scripts --tag "$npm_tag"
