@@ -83,6 +83,26 @@
   --sidebar-ring: oklch(0.6 0.16 256);
 }
 
+/* The workspace owns scrolling; the document must not expose an outer canvas. */
+html,
+body {
+  position: fixed;
+  inset: 0;
+  height: 100%;
+  overflow: clip;
+  overscroll-behavior: none;
+  background: var(--background);
+}
+
+#root {
+  height: 100%;
+}
+
+[data-slot="tabs-content"],
+nav[aria-label="App Store workspace"] {
+  overscroll-behavior: none;
+}
+
 body {
   margin: 0;
   min-width: 320px;

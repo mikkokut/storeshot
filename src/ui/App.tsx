@@ -143,7 +143,7 @@ export function App() {
     </Button>
   )
   return (
-    <div className="flex h-dvh min-h-[520px] bg-background">
+    <div className="flex h-dvh overflow-hidden bg-background">
       <ResizablePanelGroup orientation="horizontal">
         <ResizablePanel
           defaultSize={255}
