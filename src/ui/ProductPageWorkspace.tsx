@@ -382,7 +382,7 @@ function ArtworkSlot({
     return (
       <ArtworkEmptyState
         title={`No ${name} ${isScreenshot ? "screenshots" : "artwork"} yet`}
-        description={`Ask your agent to design ${name} ${isScreenshot ? "screenshots" : "artwork"}${locale ? ` in ${appStoreLocale(locale).name}` : " in your first language"}. Your preview updates as it saves changes.`}
+        description={`Ask your agent to design ${name} ${isScreenshot ? "screenshots" : "artwork"}${locale ? ` in ${appStoreLocale(locale).name}` : ""}. Your preview updates as it saves changes.`}
         metadata={`${spec.sizes[0].join(" × ")} px · ${isScreenshot ? "1–10 screenshots" : "1 PNG image"}`}
         actions={
           <AgentPrompt
