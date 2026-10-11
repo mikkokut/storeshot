@@ -32,6 +32,7 @@ import {
 import { parseStoreShotConfig, identifier } from "./app-store-config.js"
 import { APP_STORE_LOCALES } from "./app-store-locales.js"
 export { parseStoreShotConfig } from "./app-store-config.js"
+import { addPreviewRevisions } from "./preview-revisions.js"
 import { createArtboardHtml } from "./html-artboard.js"
 
 import {
@@ -105,7 +106,9 @@ export class ProjectStore {
         this.listAssets(),
         this.listSets(),
       ])
-      return { directory: this.root, config, assets, sets }
+      const project = { directory: this.root, config, assets, sets }
+      await addPreviewRevisions(project)
+      return project
     })
   }
 

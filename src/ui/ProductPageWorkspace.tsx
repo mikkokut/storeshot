@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useState } from "react"
 import {
   ChevronRight,
   CircleAlert,
@@ -13,6 +13,7 @@ import {
   Watch,
   Glasses,
 } from "lucide-react"
+import { ArtworkPreview } from "@/ArtworkPreview"
 import { ArtworkViewer } from "@/ArtworkViewer"
 import { PageHeader } from "@/PageHeader"
 import { PageTitle } from "@/PageTitle"
@@ -249,7 +250,6 @@ export function ProductPageWorkspace({
       {viewing && (
         <ArtworkViewer
           set={viewing}
-          project={project}
           onClose={() => setViewingId(null)}
         />
       )}
@@ -429,7 +429,6 @@ function ArtworkSlot({
       )}
       <ArtworkStrip
         set={set}
-        revision={project}
         onOpen={() => onView(set.id)}
       />
     </div>
@@ -438,14 +437,11 @@ function ArtworkSlot({
 
 function ArtworkStrip({
   set,
-  revision,
   onOpen,
 }: {
   set: ScreenshotSet
-  revision: StoreShotProject
   onOpen: () => void
 }) {
-  const stamp = useMemo(() => Date.now(), [revision])
   const scale = Math.min(380 / set.canvas.height, 660 / set.canvas.width, 1)
   return (
     <div className="-m-1 flex gap-5 overflow-x-auto p-1 pb-4">
@@ -454,39 +450,24 @@ function ArtworkStrip({
           type="button"
           key={area.id}
           aria-label={`Open ${area.name}`}
-          className="group shrink-0 rounded-xl text-left outline-none"
+          className="group min-w-0 shrink-0 rounded-xl text-left outline-none"
+          style={{ width: set.canvas.width * scale }}
           onClick={onOpen}
         >
-          <div
-            className="overflow-hidden rounded-xl bg-white shadow-xs ring-1 ring-black/10 transition-shadow group-hover:shadow-md group-hover:ring-black/15 group-focus-visible:ring-3 group-focus-visible:ring-ring/60"
-            style={{
-              width: set.canvas.width * scale,
-              height: set.canvas.height * scale,
-            }}
+          <ArtworkPreview
+            set={set}
+            area={area}
+            scale={scale}
+            decorative
+            frameClassName="rounded-xl bg-white shadow-xs ring-1 ring-black/10 transition-shadow group-hover:shadow-md group-hover:ring-black/15 group-focus-visible:ring-3 group-focus-visible:ring-ring/60"
           >
-            <iframe
-              key={`${area.id}-${stamp}`}
-              aria-hidden
-              title={area.name}
-              tabIndex={-1}
-              sandbox=""
-              src={`/artboards/sets/${set.id}/${area.id}.html?revision=${stamp}`}
-              style={{
-                width: set.canvas.width,
-                height: set.canvas.height,
-                transform: `scale(${scale})`,
-                transformOrigin: "top left",
-                border: 0,
-                pointerEvents: "none",
-              }}
-            />
-          </div>
-          <p className="mt-2.5 max-w-64 truncate text-[13px]">
+          <p className="mt-2.5 truncate text-[13px]" title={area.name}>
             <span className="mr-1.5 text-muted-foreground tabular-nums">
               {String(index + 1).padStart(2, "0")}
             </span>
             {area.name}
           </p>
+          </ArtworkPreview>
         </button>
       ))}
     </div>

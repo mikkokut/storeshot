@@ -96,6 +96,8 @@ export interface StoreShotProject {
 
 /** Metadata and HTML are hydrated from sets/<set-id>/<area-id>[-slug].{json,html}. */
 export interface ScreenshotArea {
+  /** Derived for live previews; never persisted in the collection document. */
+  previewRevision?: string
   id: string
   name: string
   html: string

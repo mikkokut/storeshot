@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
+import { ArtworkPreview } from "@/ArtworkPreview"
 import { appStoreLocale } from "@/app-store-locales"
 import {
   Dialog,
@@ -6,15 +7,13 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog"
-import type { ScreenshotSet, StoreShotProject } from "../shared"
+import type { ScreenshotSet } from "../shared"
 
 export function ArtworkViewer({
   set,
-  project,
   onClose,
 }: {
   set: ScreenshotSet
-  project: StoreShotProject
   onClose: () => void
 }) {
   const [viewport, setViewport] = useState<HTMLDivElement | null>(null)
@@ -36,7 +35,6 @@ export function ArtworkViewer({
     Math.max(1, bounds.width - 48) / set.canvas.width,
     Math.max(1, bounds.height - 100) / set.canvas.height,
   )
-  const stamp = useMemo(() => Date.now(), [project])
   return (
     <Dialog
       open
@@ -72,27 +70,12 @@ export function ArtworkViewer({
                   </span>
                   {area.name}
                 </figcaption>
-                <div
-                  className="overflow-hidden bg-white shadow-sm ring-1 ring-black/5"
-                  style={{
-                    width: set.canvas.width * scale,
-                    height: set.canvas.height * scale,
-                  }}
-                >
-                  <iframe
-                    title={area.name}
-                    tabIndex={-1}
-                    sandbox=""
-                    src={`/artboards/sets/${set.id}/${area.id}.html?revision=${stamp}`}
-                    className="block border-0 bg-white pointer-events-none"
-                    style={{
-                      width: set.canvas.width,
-                      height: set.canvas.height,
-                      transform: `scale(${scale})`,
-                      transformOrigin: "top left",
-                    }}
-                  />
-                </div>
+                <ArtworkPreview
+                  set={set}
+                  area={area}
+                  scale={scale}
+                  frameClassName="bg-white shadow-sm ring-1 ring-black/5"
+                />
               </figure>
             ))}
           </div>

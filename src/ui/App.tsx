@@ -224,7 +224,6 @@ export function App() {
               <ArtworkViewer
                 key={collection.id}
                 set={collection}
-                project={project}
                 onClose={() => navigate(`/pages/${page.id}`)}
               />
             )}

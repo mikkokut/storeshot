@@ -31,7 +31,7 @@ storeshot dev ./app-store-screenshots
 ```
 
 An open `dev` workspace watches `storeshot.json`, `sets/`, and `assets/`. CLI changes and direct filesystem edits are streamed to the
-browser, so an open set and its preview update without restarting the server.
+browser, so an open set and its preview update without restarting the server. Only artwork whose HTML, canvas, or referenced local resources changed reloads; shared stylesheet, image, and font edits refresh the previews that use them. The previous artwork stays visible while the replacement loads, followed by a brief “Updated” indicator. Renaming a screenshot or editing unrelated artwork does not reload its preview.
 
 ## Recommended agent loop
 
