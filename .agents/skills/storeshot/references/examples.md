@@ -48,16 +48,18 @@ recolored via CSS `mask`; the labels intentionally make no award claim.
 
 1. Inspect the saved preview and selected HTML/CSS. Use only the technique needed;
    do not load every example for an unrelated artwork edit.
-2. For a new scratch project, copy the entire chosen project folder to the user's
-   screenshot directory. Work on the copy, leaving the skill assets intact.
-   Run `storeshot init ./screenshots` on the copy to create its empty asset
-   categories before validation or rendering. For an existing project, create a
-   destination collection with the CLI, then
-   adapt selected HTML and copy its required resources under new project-local
-   names. Preserve that collection's page, locale, destination, and canvas.
-   Do not overwrite an existing `storeshot.json` with an example's config.
-3. Replace `assets/screenshots/placeholder.svg` references with real captures or
-   the placeholders requested by the user. The supplied SVG intentionally uses
+2. In the user's project, create the destination collection with the CLI. Then
+   adapt the selected HTML into its artboards, and copy the required resources
+   (stylesheet, font with its license, laurel SVG) into `assets/other/` under
+   project-appropriate names. Keep the collection's page, locale, destination,
+   and canvas. Never copy an example's `storeshot.json` or set folders over the
+   user's project: the example IDs, page, and names are illustrative. Leave the
+   skill's originals intact. (For a throwaway experiment, you may copy a whole
+   example folder somewhere else, then run `storeshot init` on the copy before
+   validating or rendering.)
+3. Replace `assets/screenshots/placeholder.svg` references with real captures.
+   While captures are still missing, copy the placeholder into the project and
+   report which screens are needed. The supplied SVG intentionally uses
    `preserveAspectRatio="none"` so its abstract blocks fill arbitrary openings;
    this is not a recommendation to stretch real screenshots. Match capture and
    opening aspect ratios, using contain or an intentional crop.
@@ -83,15 +85,8 @@ The five JPEG previews use quality 80: phones are 603 × 1311 (scale 0.5), table
 selection. They are design references, not upload-ready exports or substitutes
 for full-resolution typography review.
 
-If an example changes, copy its project to a temporary directory, then regenerate
-PNGs with the installed CLI before converting to JPEG using an available image
-tool. For example, from a copied bold project:
-
-```bash
-storeshot -C ./example-copy validate --strict --json
-storeshot -C ./example-copy render --set phone --scale 0.5 --output ./preview-png --json
-storeshot -C ./example-copy render --set tablet --scale 0.25 --output ./preview-png --json
-```
-
-Refresh the corresponding saved previews and overview together and visually
-inspect them. Keep generated full-resolution output out of the distributed skill.
+Maintainers changing an example should copy its project to a temporary
+directory and render it with the scales above, for example
+`render --set phone --scale 0.5 --output ./preview-png`. Then convert the
+renders to JPEG and refresh the matching previews and the overview together.
+Keep full-resolution output out of the skill.

@@ -6,6 +6,20 @@ actual imported asset paths. Keep related styles in a project-local stylesheet
 when several artboards share the treatment. URLs in CSS resolve relative to the
 stylesheet file; URLs in inline styles resolve relative to the artboard HTML.
 
+Lay out at the canvas's full pixel size, for example
+`html, body { margin: 0; width: 1206px; height: 2622px; overflow: hidden; }`,
+but only on a canvas of that size. Give the body an intentional opaque
+background. Flexbox, Grid, absolute positioning, transforms, masks, and inline
+SVG all work. Artboards made by `set create` start with
+`img, svg { display: block; max-width: 100% }` and `line-height: 1.5`. Override
+these for devices or images that intentionally extend past the canvas edge, or
+replace the template entirely.
+
+A convenient pattern, used by the example gallery: design in a smaller "stage"
+coordinate space, then scale the stage uniformly to the canvas width with
+`transform: scale(...)` and `transform-origin: 0 0`. Never use different
+horizontal and vertical scale factors.
+
 ## CSS device shell
 
 Use this for a stylized rounded border, gradient, or shadow. A catalog frame is

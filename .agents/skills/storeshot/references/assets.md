@@ -1,7 +1,50 @@
-# Catalog assets: import results and rendering geometry
+# Catalog assets: discovery, import, and geometry
 
-Read this when composing device frames, interpreting installed-asset status, or
-reusing an image whose name or contents have changed.
+Read this when using a bundled device frame, laurel, line, or decoration, when
+interpreting installed-asset status, or when reusing an image whose name or
+contents have changed.
+
+## Find and import
+
+StoreShot ships an offline catalog of individual images. If
+`storeshot asset --help` lacks `search`, `show`, `import`, `inspect`, or
+`installed`, the installed release predates the catalog. Never copy files from
+the package's internal paths instead.
+
+```bash
+# Discover; search and show work without a project.
+storeshot asset search "iphone 17" --kind mockup --platform iphone --json
+storeshot asset search --kind laurels --json
+storeshot asset show CATALOG_ID --json
+
+# Install one or more IDs into the project.
+storeshot -C DIR asset import CATALOG_ID OTHER_ID --json
+
+# Reuse and inspect local copies.
+storeshot -C DIR asset installed --json
+storeshot -C DIR asset search --installed --kind mockup --json
+storeshot -C DIR asset inspect other/FILENAME.svg --json
+```
+
+- **Search:** matches every quoted word against IDs, names, descriptions, tags,
+  authors, platform, and style. Exact ID, name, or tag matches rank first. Omit
+  filters to broaden a search.
+- **Filters:** kinds are `mockup`, `decor`, `lines`, and `laurels`. Platforms
+  are `iphone`, `ipad`, `mac`, and `watch`.
+- **Checksum lookup:** pass a complete 64-digit SHA-256 hash, optionally
+  prefixed with `sha256:`. Partial hashes do not match.
+- **IDs vs paths:** catalog IDs and local asset paths are different inputs. Use
+  IDs from search results.
+
+Read `show` before choosing a frame. Its screen geometry must suit your
+capture's aspect ratio. Laurels and decorations are generic artwork. Never
+pair them with awards, ratings, or press quotes the user has not supplied.
+
+Repeated imports reuse files with matching bytes. A different file at the
+default destination needs `--replace`; pass it only when replacing is intended.
+Each ID in a multi-ID import installs independently, so after a failure, check
+the results and retry the remaining IDs. Keep `assets/.storeshot-imports.json`
+and `assets/.licenses/` when sharing or copying the project.
 
 ## Choose metadata for the actual local image
 
@@ -11,8 +54,10 @@ for device mockups. `file` is a package-internal path, not a project image URL.
 
 `asset import CATALOG_ID --json` returns an `assets` array. Each result includes
 `id`, `path`, `checksum`, `reused`, `replaced`, and `licensePath`. Use its `path`
-exactly: a matching existing image may have a different name, folder, or extension
-from the default `assets/other/<catalog-id>.<extension>`.
+exactly, because a matching existing image may have a different name, folder,
+or extension from the default `assets/other/<catalog-id>.<extension>`. The path
+is project-relative: an artboard references it as `../../<path>`, and
+`asset inspect` takes it without the leading `assets/`.
 
 `asset inspect LOCAL_PATH --json` expects a path relative to `assets/`, such as
 `other/frameup-free-iphone-17-pro.svg`. Its `asset` contains the actual local
@@ -66,10 +111,11 @@ images, preserving aspect ratio unless stretching is intentional.
 
 ## Perspective device screens
 
-A `screen.kind: "projective"` definition supplies a 3×3 matrix `m` mapping
-normalized screenshot `(u,v)` coordinates to normalized frame coordinates.
-Divide the first two transformed components by the third, then multiply by frame
-width `W` and height `H`.
+A `screen.kind: "projective"` definition supplies `screen.transform`, a
+row-major 3×3 matrix (below, `mRC` is `transform[R][C]`). It maps normalized
+screenshot coordinates `(u, v, 1)` to normalized frame coordinates. Divide the
+first two transformed components by the third, then multiply by frame width `W`
+and height `H`.
 
 For CSS, give a screenshot wrapper a 1px × 1px source plane and
 `transform-origin: 0 0`. Convert the matrix to the following column-major values,
