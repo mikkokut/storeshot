@@ -263,7 +263,7 @@ export function defaultConfig(): StoreShotConfig {
     version: 2,
     pages: [
       {
-        id: "default",
+        id: `page-${crypto.randomUUID().slice(0, 8)}`,
         name: "Product Page",
         store: "app-store",
         localizations: [],

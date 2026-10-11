@@ -100,7 +100,7 @@ For everyday design edits, edit HTML files directly. Each collection lives in
 ```json
 {
   "version": 3,
-  "pageId": "default",
+  "pageId": "page-a1b2c3d4",
   "specId": "iphone",
   "name": "English iPhone",
   "locale": "en-US",
@@ -237,25 +237,28 @@ All pages behave the same and persist their selected store. `page create`
 accepts `--store app-store` (the default); Google Play is coming later.
 
 ```bash
+# Discover page IDs; substitute one returned by page list for PAGE_ID.
+storeshot -C ./screenshots page list --json
+
 # Device destinations are selected when creating artwork.
 storeshot -C ./screenshots specs --json
-storeshot -C ./screenshots page prepare default --locale en-US
+storeshot -C ./screenshots page prepare PAGE_ID --locale en-US
 
 # Copy all device/creative collections into a language for translation review.
-storeshot -C ./screenshots page localize default --locale fi --from en-US
+storeshot -C ./screenshots page localize PAGE_ID --locale fi --from en-US
 
 # Copy artwork for all devices into independent product pages.
-storeshot -C ./screenshots page create --name "Travel" --source default
+storeshot -C ./screenshots page create --name "Travel" --source PAGE_ID
 storeshot -C ./screenshots page list --json
 
 # Prepare optional creative artwork at a validated Apple size.
 storeshot -C ./screenshots set create --name "Brand header" --locale en-US \
-  --page default --spec header
+  --page PAGE_ID --spec header
 storeshot -C ./screenshots set create --name "Universal campaign" --locale fi \
-  --page default --spec universal
+  --page PAGE_ID --spec universal
 
 # Render one page across all languages, or one language across pages.
-storeshot -C ./screenshots render --page default
+storeshot -C ./screenshots render --page PAGE_ID
 storeshot -C ./screenshots render --locale fi
 ```
 

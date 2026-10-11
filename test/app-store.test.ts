@@ -21,12 +21,12 @@ import {
 import { parseStoreShotConfig } from "../src/app-store-config.js"
 import { ProjectStore } from "../src/project-store.js"
 
-async function fixture(run: (store: ProjectStore) => Promise<void>) {
+async function fixture(run: (store: ProjectStore, pageId: string) => Promise<void>) {
   const root = await mkdtemp(path.join(tmpdir(), "storeshot-app-store-"))
   try {
     const store = new ProjectStore(root)
     await store.initialize()
-    await run(store)
+    await run(store, (await store.readConfig()).pages[0].id)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -48,7 +48,7 @@ test("Apple dimensions include Duo, creative placements, orientations and 3:2 ra
   assert.equal(acceptsSize(assetSpec("header")!, 1646, 3840), false)
 })
 test("upcoming Duo slots remain creatable without preparation or missing-counterpart warnings", async () =>
-  fixture(async (store) => {
+  fixture(async (store, pageId) => {
     for (const specId of ["iphone-duo-outer", "iphone-duo-inner"]) {
       const spec = assetSpec(specId)!
       assert.equal(spec.requirement, "upcoming")
@@ -57,7 +57,7 @@ test("upcoming Duo slots remain creatable without preparation or missing-counter
       const set = await store.createSet({ specId, name: spec.name, device: spec.name, locale: "en-US", width, height })
       assert.deepEqual(readinessIssues(await store.readConfig(), [set]), [])
     }
-    assert.deepEqual(await store.preparePage("default", "en-US"), [])
+    assert.deepEqual(await store.preparePage(pageId, "en-US"), [])
     const page = await store.createPage({ name: "Duo draft" })
     const spec = assetSpec("iphone-duo-outer")!
     const [width, height] = creationSize(spec)
@@ -65,7 +65,7 @@ test("upcoming Duo slots remain creatable without preparation or missing-counter
     assert.deepEqual(await store.preparePage(page.id, "en-US"), [])
   }))
 test("prepare creates each required slot once, and preserves edited artwork", async () =>
-  fixture(async (store) => {
+  fixture(async (store, pageId) => {
     for (const device of ["iphone", "ipad", "iphone-duo", "watch", "mac"]) {
       const spec = ASSET_SPECS.find(
         (spec) => spec.device === device,
@@ -79,12 +79,12 @@ test("prepare creates each required slot once, and preserves edited artwork", as
         ),
       )
     }
-    const sets = await store.preparePage("default", "en-US")
+    const sets = await store.preparePage(pageId, "en-US")
     assert.deepEqual(
       sets.map((set) => set.specId),
       ["iphone", "ipad", "watch", "mac"],
     )
-    assert.equal((await store.preparePage("default", "en-US")).length, 0)
+    assert.equal((await store.preparePage(pageId, "en-US")).length, 0)
     const project = await store.readProject()
     assert.equal(
       readinessIssues(project.config, project.sets).filter(
@@ -94,13 +94,13 @@ test("prepare creates each required slot once, and preserves edited artwork", as
     )
   }))
 test("language copies keep resources independent when source HTML changes", async () =>
-  fixture(async (store) => {
-    const [source] = await store.preparePage("default", "en-US")
+  fixture(async (store, pageId) => {
+    const [source] = await store.preparePage(pageId, "en-US")
     await writeFile(
       path.join(store.setsPath, source.id, "style.css"),
       "body{background:red}",
     )
-    await store.localizePage("default", { locale: "fi", sourceLocale: "en-US" })
+    await store.localizePage(pageId, { locale: "fi", sourceLocale: "en-US" })
     const copy = (await store.listSets()).find((set) => set.locale === "fi")!
     assert.notEqual(copy.id, source.id)
     assert.equal(copy.sourceLocale, "en-US")
@@ -117,14 +117,14 @@ test("language copies keep resources independent when source HTML changes", asyn
       "<h1>Changed externally</h1>",
     )
     await assert.rejects(
-      store.localizePage("default", { locale: "fi" }),
+      store.localizePage(pageId, { locale: "fi" }),
       /already/,
     )
     await assert.rejects(
-      store.localizePage("default", { locale: "zz-QQ" }),
+      store.localizePage(pageId, { locale: "zz-QQ" }),
       /supported/,
     )
-    assert.match(exportPath(copy), /^default\/fi\/iphone\//)
+    assert.ok(exportPath(copy).startsWith(`${pageId}/fi/iphone/`))
   }))
 test("pages create, copy and localize artwork for every device", async () =>
   fixture(async (store) => {
@@ -246,7 +246,7 @@ test("config accepts ordinary pages without a default page or page kinds and rej
   assert.equal(parseStoreShotConfig({ ...config, pages }).pages.length, 75)
 })
 test("preparation uses device-matched source screenshots only in the page’s first language", async () =>
-  fixture(async (store) => {
+  fixture(async (store, pageId) => {
     await store.addAsset(
       "screenshots",
       "phone.svg",
@@ -261,7 +261,7 @@ test("preparation uses device-matched source screenshots only in the page’s fi
         '<svg xmlns="http://www.w3.org/2000/svg" width="2007" height="2853"></svg>',
       ),
     )
-    const prepared = await store.preparePage("default", "en-US")
+    const prepared = await store.preparePage(pageId, "en-US")
     const iphone = prepared.find((set) => set.specId === "iphone")!
     assert.deepEqual(
       prepared.filter((set) => set.specId.startsWith("iphone-duo")).map((set) => set.specId),
@@ -270,8 +270,8 @@ test("preparation uses device-matched source screenshots only in the page’s fi
     assert.equal(iphone.areas.length, 1)
     assert.match(iphone.areas[0].html, /phone.svg/)
     assert.doesNotMatch(iphone.areas[0].html, /duo.svg/)
-    await store.localizePage("default", { locale: "fi" })
-    const localized = await store.preparePage("default", "fi")
+    await store.localizePage(pageId, { locale: "fi" })
+    const localized = await store.preparePage(pageId, "fi")
     assert.doesNotMatch(localized[0].areas[0].html, /phone.svg/)
   }))
 
@@ -305,11 +305,11 @@ test("removing a page language removes only its collections and supports removin
     assert.deepEqual((await store.readConfig()).pages.find((entry) => entry.id === page.id)?.localizations, ["fi"])
   }))
 test("any page can be removed, including the initial and last page, preserving source artwork", async () =>
-  fixture(async (store) => {
-    await store.preparePage("default", "en-US")
+  fixture(async (store, pageId) => {
+    await store.preparePage(pageId, "en-US")
     const page = await store.createPage({
       name: "A",
-      sourcePageId: "default",
+      sourcePageId: pageId,
     })
     await store.renamePage(page.id, "Benefit first")
     assert.equal(
@@ -328,7 +328,7 @@ test("any page can be removed, including the initial and last page, preserving s
         "utf8",
       ),
     )
-    await store.deletePage("default")
+    await store.deletePage(pageId)
     assert.deepEqual((await store.readConfig()).pages, [])
     assert.deepEqual(await store.listSets(), [])
     await assert.rejects(store.createSet({ name: "No page", device: "iPhone", locale: "en-US", specId: "iphone", width: 1206, height: 2622 }), /Create a product page/)
@@ -338,7 +338,10 @@ test("any page can be removed, including the initial and last page, preserving s
   }))
 
 test("first artwork defines its language without app settings or device setup", async () =>
-  fixture(async (store) => {
+  fixture(async (store, pageId) => {
+    assert.match(pageId, /^page-[a-f0-9]{8}$/)
+    await store.initialize()
+    assert.equal((await store.readConfig()).pages[0].id, pageId)
     assert.deepEqual((await store.readConfig()).pages[0].localizations, [])
     assert.deepEqual(readinessIssues(await store.readConfig(), []), [])
     const config = await store.readConfig()
@@ -350,7 +353,7 @@ test("first artwork defines its language without app settings or device setup", 
       name: "iPad",
       device: "iPad",
       locale: "fi",
-      pageId: "default",
+      pageId,
       specId: "ipad",
       width: 2064,
       height: 2752,
@@ -462,7 +465,7 @@ test("creation offers current required and upcoming displays at one fixed size w
 })
 
 test("stored alternate dimensions remain editable and Watch creation keeps localization dimensions consistent", async () =>
-  fixture(async (store) => {
+  fixture(async (store, pageId) => {
     const set = await store.createSet({
       name: "Existing Watch",
       device: "Watch",
@@ -472,7 +475,7 @@ test("stored alternate dimensions remain editable and Watch creation keeps local
       height: 502,
     })
     assert.deepEqual(creationSize(assetSpec("watch")!, [set]), [410, 502])
-    const [localized] = await store.preparePage("default", "fi")
+    const [localized] = await store.preparePage(pageId, "fi")
     assert.deepEqual(localized.canvas, { width: 410, height: 502 })
     const stored = await store.readSet(set.id)
     await store.writeSet(set.id, { ...stored, name: "Edited Watch" })
@@ -483,7 +486,7 @@ test("stored alternate dimensions remain editable and Watch creation keeps local
   }))
 
 test("concurrent page and collection changes preserve both config updates", async () =>
-  fixture(async (store) => {
+  fixture(async (store, pageId) => {
     const [page] = await Promise.all([
       store.createPage({ name: "Campaign" }),
       store.createSet({
@@ -494,7 +497,7 @@ test("concurrent page and collection changes preserve both config updates", asyn
         width: 1206,
         height: 2622,
       }),
-      store.renamePage("default", "Main page"),
+      store.renamePage(pageId, "Main page"),
     ])
     const config = await store.readConfig()
     assert.ok(config.pages.some((entry) => entry.id === page.id))
@@ -528,7 +531,7 @@ test("rejected metadata changes do not add a localization", async () =>
   }))
 
 test("preparation uses exact TV dimensions and honors screenshot device overrides", async () =>
-  fixture(async (store) => {
+  fixture(async (store, pageId) => {
     await store.addAsset(
       "screenshots",
       "tv.svg",
@@ -546,7 +549,7 @@ test("preparation uses exact TV dimensions and honors screenshot device override
     await store.updateAssetMetadata("screenshots", "custom.svg", {
       deviceType: "ipad",
     })
-    const prepared = await store.preparePage("default", "en-US")
+    const prepared = await store.preparePage(pageId, "en-US")
     assert.match(
       prepared.find((set) => set.specId === "tv")!.areas[0].html,
       /tv.svg/,

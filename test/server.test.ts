@@ -230,27 +230,28 @@ test("App Store API prepares, localizes and clones page collections with validat
   const base = `http://127.0.0.1:${service.port}`
   const post = (endpoint: string, body: unknown) => fetch(`${base}${endpoint}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
   try {
-    const prepared = await post("/api/pages/default/prepare", { locale: "en-US" })
+    const pageId = (await service.store.readConfig()).pages[0].id
+    const prepared = await post(`/api/pages/${pageId}/prepare`, { locale: "en-US" })
     assert.equal(prepared.status, 200)
     const project = await prepared.json() as { sets: { specId: string }[] }
     assert.equal(project.sets[0].specId, "iphone")
-    assert.equal((await post("/api/pages/default/localizations", { locale: "fi", sourceLocale: "en-US" })).status, 200)
-    assert.equal((await post("/api/pages/default/localizations", { locale: "fi" })).status, 400)
-    const copy = await post("/api/pages", { name: "Campaign", sourcePageId: "default" })
+    assert.equal((await post(`/api/pages/${pageId}/localizations`, { locale: "fi", sourceLocale: "en-US" })).status, 200)
+    assert.equal((await post(`/api/pages/${pageId}/localizations`, { locale: "fi" })).status, 400)
+    const copy = await post("/api/pages", { name: "Campaign", sourcePageId: pageId })
     assert.equal(copy.status, 201)
     const body = await copy.json() as { page: { localizations: string[] }; project: { sets: unknown[] } }
     assert.deepEqual(body.page.localizations,["en-US","fi"])
     assert.equal(body.project.sets.length,4)
     const status = await fetch(`${base}/api/app-store`).then((response)=>response.json()) as { issues: {code:string}[] }
     assert.equal(status.issues.length,0)
-    assert.equal((await post("/api/pages/default/prepare", { locale: "../escape" })).status,400)
-    const removed = await fetch(`${base}/api/pages/default/localizations/fi`, { method: "DELETE" })
+    assert.equal((await post(`/api/pages/${pageId}/prepare`, { locale: "../escape" })).status,400)
+    const removed = await fetch(`${base}/api/pages/${pageId}/localizations/fi`, { method: "DELETE" })
     assert.equal(removed.status, 200)
     const remaining = await removed.json() as { config: { pages: { id: string; localizations: string[] }[] }; sets: { pageId: string; locale: string }[] }
-    assert.deepEqual(remaining.config.pages.find((page) => page.id === "default")?.localizations, ["en-US"])
-    assert.ok(!remaining.sets.some((set) => set.pageId === "default" && set.locale === "fi"))
+    assert.deepEqual(remaining.config.pages.find((page) => page.id === pageId)?.localizations, ["en-US"])
+    assert.ok(!remaining.sets.some((set) => set.pageId === pageId && set.locale === "fi"))
     assert.equal(remaining.sets.length, 3)
-    assert.equal((await fetch(`${base}/api/pages/default/localizations/fi`, { method: "DELETE" })).status, 400)
+    assert.equal((await fetch(`${base}/api/pages/${pageId}/localizations/fi`, { method: "DELETE" })).status, 400)
     assert.equal((await fetch(`${base}/api/pages/missing/localizations/fi`, { method: "DELETE" })).status, 400)
   } finally { await service.close(); await rm(directory,{recursive:true,force:true}) }
 })
