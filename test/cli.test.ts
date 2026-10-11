@@ -1,11 +1,48 @@
 import assert from "node:assert/strict"
-import { execFile } from "node:child_process"
+import { execFile, spawn } from "node:child_process"
+import { once } from "node:events"
+import { createServer, type AddressInfo } from "node:net"
 import { mkdtemp, readFile, rename, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { ProjectStore } from "../src/project-store.js"
 import { promisify } from "node:util"
 import test from "node:test"
+
+test("CLI dev prints reachable workspace URLs for IPv4 and IPv6", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "storeshot-cli-host-"))
+  try {
+    for (const host of ["127.0.0.1", "::1"]) {
+      const reservation = createServer()
+      reservation.listen(0, host)
+      await once(reservation, "listening")
+      const port = (reservation.address() as AddressInfo).port
+      await new Promise<void>((resolve, reject) => reservation.close((error) => error ? reject(error) : resolve()))
+      const child = spawn(process.execPath, ["--import", "tsx", "src/cli.ts", "dev", directory, "--host", host, "--port", String(port), "--no-open", "--json"], { stdio: ["ignore", "pipe", "pipe"] })
+      const exited = once(child, "exit")
+      let stderr = ""
+      child.stderr.on("data", (chunk) => { stderr += chunk })
+      try {
+        const output = await new Promise<{ url: string }>((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error(`CLI startup timed out: ${stderr}`)), 15_000)
+          let stdout = ""
+          child.stdout.on("data", (chunk) => {
+            stdout += chunk
+            const line = stdout.split("\n").find((line) => line.startsWith('{"ok":true,'))
+            if (line) { clearTimeout(timeout); resolve(JSON.parse(line)) }
+          })
+          child.once("error", (error) => { clearTimeout(timeout); reject(error) })
+          child.once("exit", () => { clearTimeout(timeout); reject(new Error(`CLI exited before startup: ${stderr}`)) })
+        })
+        assert.equal(output.url, `http://${host === "::1" ? "[::1]" : host}:${port}`)
+        assert.equal((await fetch(`${output.url}/api/project`)).status, 200)
+      } finally {
+        child.kill("SIGTERM")
+        await exited
+      }
+    }
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
 
 test("CLI validates a selected page and rejects unknown pages with JSON and a failing exit status", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "storeshot-cli-validation-"))

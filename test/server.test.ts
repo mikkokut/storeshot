@@ -6,8 +6,48 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import test from "node:test"
 import { promisify } from "node:util"
+import puppeteer, { type Browser } from "puppeteer-core"
+import { readImageMetadata } from "../src/image-metadata.js"
 
 import { startServer } from "../src/server.js"
+
+test("PNG requests share Chrome across languages and concurrent exports, recover from launch failure, and close on shutdown", async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), "storeshot-server-png-"))
+  const launch = puppeteer.launch.bind(puppeteer)
+  let browser: Browser | undefined
+  let attempts = 0
+  const launchMock = t.mock.method(puppeteer, "launch", async (...args: Parameters<typeof launch>) => {
+    if (++attempts === 1) throw new Error("Temporary launch failure")
+    browser = await launch(...args)
+    return browser
+  })
+  const service = await startServer({ host: "127.0.0.1", port: 0, packageRoot: process.cwd(), projectDirectory: directory, useVite: false })
+  try {
+    assert.equal(launchMock.mock.callCount(), 0)
+    const sets = await Promise.all(["en-US", "fi"].map((locale) => service.store.createSet({ name: locale, locale, device: "Phone", width: 400, height: 800 })))
+    const png = (set: typeof sets[number]) => fetch(`http://127.0.0.1:${service.port}/api/sets/${set.id}/areas/${set.areas[0].id}/png`, { method: "POST" })
+    assert.equal((await png(sets[0])).status, 400)
+    const results = await Promise.all(sets.map(png))
+    for (const response of results) {
+      assert.equal(response.status, 200)
+      assert.equal(response.headers.get("content-type"), "image/png")
+      assert.deepEqual(readImageMetadata(Buffer.from(await response.arrayBuffer())), { width: 400, height: 800 })
+    }
+    assert.equal(launchMock.mock.callCount(), 2)
+    const baselinePages = (await browser!.pages()).length
+    const htmlPath = path.join(service.store.setsPath, sets[0].id, `${sets[0].areas[0].id}.html`)
+    await writeFile(htmlPath, '<img src="../../assets/brand/missing.png">')
+    assert.equal((await png(sets[0])).status, 400)
+    await writeFile(htmlPath, sets[0].areas[0].html)
+    assert.equal((await png(sets[0])).status, 200)
+    assert.equal((await browser!.pages()).length, baselinePages)
+    assert.equal(launchMock.mock.callCount(), 2)
+  } finally {
+    await service.close()
+    assert.equal(browser?.connected, false)
+    await rm(directory, { recursive: true, force: true })
+  }
+})
 
 test("failed server startup releases its watcher and lets the CLI exit", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "storeshot-server-startup-"))

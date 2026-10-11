@@ -276,7 +276,7 @@ function DeviceArtwork({
     project.sets.flatMap((set) => {
       const spec = assetSpec(set.specId)
       return set.pageId === page.id &&
-        spec?.requirement === "required" &&
+        spec && spec.requirement !== "optional" &&
         spec.device !== "creative"
         ? [spec.device]
         : []
@@ -305,9 +305,7 @@ function DeviceArtwork({
         </TabsList>
       </div>
       {DEVICE_TABS.map(({ id }) => {
-        const selected = ASSET_SPECS.filter(
-          (spec) => spec.device === id && spec.requirement === "required",
-        )
+        const selected = CREATION_SPECS.filter((spec) => spec.device === id)
         return (
           <TabsContent key={id} value={id} className="pt-6">
             <ArtworkLanguages
@@ -417,7 +415,7 @@ function ArtworkSlot({
         }
         metadata={`${spec.sizes[0].join(" × ")} px · ${isScreenshot ? "1–10 screenshots" : "1 PNG image"}`}
         actions={create}
-        footer={isScreenshot ? "Source images are available from your Asset Library." : undefined}
+        footer={spec.requirement === "upcoming" ? spec.guidance : isScreenshot ? "Source images are available from your Asset Library." : undefined}
       />
     )
   return (

@@ -10,6 +10,7 @@ import type { ViteDevServer } from "vite"
 
 import { serveArtboardResource } from "./artboard-files.js"
 import { DuplicateAssetError, ProjectStore } from "./project-store.js"
+import { createBrowserRenderer } from "./node-renderer.js"
 import type { AssetCategory, CreateSetInput, ScreenshotSet, UpdateAssetMetadataInput, UpdateSetMetadataInput } from "./shared.js"
 
 const MAX_REQUEST_BYTES = 25 * 1024 * 1024
@@ -29,13 +30,22 @@ export async function startServer(options: StartServerOptions) {
   const projectEvents = new ProjectEventHub(store.root)
 
   let vite: ViteDevServer | undefined
+  // Share one lazy Chrome launch across sequential and concurrent PNG requests.
+  let renderer: ReturnType<typeof createBrowserRenderer> | undefined
+  const getRenderer = () => {
+    renderer ??= createBrowserRenderer(store).catch((error: unknown) => {
+      renderer = undefined
+      throw error
+    })
+    return renderer
+  }
 
   const server = createServer(async (request, response) => {
     try {
       if ((request.url ?? "").startsWith("/api/")) assertAllowedBrowserRequest(request, options.host)
       if ((request.url ?? "").startsWith("/artboards/")) assertAllowedBrowserRequest(request, options.host, true)
       if (await serveArtboardResource(request, response, store.root)) return
-      if (await handleApiRequest(request, response, store, projectEvents)) return
+      if (await handleApiRequest(request, response, store, projectEvents, getRenderer)) return
       if (vite) {
         vite.middlewares(request, response)
         return
@@ -73,10 +83,14 @@ export async function startServer(options: StartServerOptions) {
     port: (server.address() as AddressInfo).port,
     close: async () => {
       projectEvents.close()
-      await vite?.close()
-      await new Promise<void>((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()))
-      })
+      try {
+        await vite?.close()
+        await new Promise<void>((resolve, reject) => {
+          server.close((error) => (error ? reject(error) : resolve()))
+        })
+      } finally {
+        if (renderer) await (await renderer).close()
+      }
     },
   }
 }
@@ -86,6 +100,7 @@ async function handleApiRequest(
   response: ServerResponse,
   store: ProjectStore,
   projectEvents: ProjectEventHub,
+  getRenderer: () => ReturnType<typeof createBrowserRenderer>,
 ): Promise<boolean> {
   const url = new URL(request.url ?? "/", "http://localhost")
 
@@ -94,12 +109,9 @@ async function handleApiRequest(
     const set = await store.readSet(decodeURIComponent(pngMatch[1]))
     const area = set.areas.find((area) => area.id === decodeURIComponent(pngMatch[2]))
     if (!area) throw new HttpError(404, "Artboard not found")
-    const { createBrowserRenderer } = await import("./node-renderer.js")
-    const renderer = await createBrowserRenderer(store)
-    try {
-      const png = await renderer.render(set, area)
-      response.writeHead(200, { "Content-Type": "image/png", "Content-Length": png.length }).end(png)
-    } finally { await renderer.close() }
+    const renderer = await getRenderer()
+    const png = await renderer.render(set, area)
+    response.writeHead(200, { "Content-Type": "image/png", "Content-Length": png.length }).end(png)
     return true
   }
   const newAreaMatch = url.pathname.match(/^\/api\/sets\/([^/]+)\/areas$/)

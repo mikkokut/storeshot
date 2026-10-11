@@ -61,8 +61,8 @@ There is no manual review checklist or status to maintain.
 
 ## Current Apple specifications
 
-Verified **2026-10-09** against Apple's [screenshot specifications](https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications/).
-Creation uses one fixed size per currently required device. Size and orientation
+Verified **2026-10-11** against Apple's [screenshot specifications](https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications/).
+Creation uses one fixed size per currently required or upcoming device. Size and orientation
 selectors are omitted. The data schema and validation catalog retain alternative
 published dimensions, orientations, and display destinations for future support.
 
@@ -79,6 +79,8 @@ published dimensions, orientations, and display destinations for future support.
 Screenshots accept 1–10 images per display size. Exported PNGs have an opaque
 background. App Store Connect scales required screenshots for smaller displays;
 StoreShot does not currently offer optional display overrides.
+Browser exports share one Chrome instance across images and languages; it starts
+on the first PNG request and closes when the workspace server shuts down.
 
 Apple's [creative specifications](https://developer.apple.com/help/app-store-connect/reference/app-information/creative-assets-specifications/)
 define Header at 3840 × 1646, Search Results at 3:2 from 1920 × 1280 through
@@ -92,6 +94,10 @@ requirement. Optional larger iPhone and smaller iPad display slots remain in the
 validation catalog for existing artwork, with no new-creation controls. The
 iPhone Duo tab offers separate outer (1398 × 2034) and inner (2007 × 2853)
 display slots, each with its own creation control and artwork collection.
+Duo slots are upcoming: `page prepare` does not create them, and readiness checks
+do not require a counterpart. Create them explicitly to prepare future artwork.
+Their conditional requirement starts in April 2027 for apps using iOS 27.1 SDK or later;
+StoreShot does not yet track the app's SDK version.
 
 ## Apple workflow and design references
 

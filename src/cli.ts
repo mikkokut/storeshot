@@ -10,6 +10,7 @@ import { type CreatePageInput } from "./shared.js"
 import { constants } from "node:fs"
 import { readFileSync } from "node:fs"
 import { access, readFile } from "node:fs/promises"
+import { isIP } from "node:net"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -664,7 +665,8 @@ function configureDevCommand(program: Command): void {
           projectDirectory,
           useVite: isSourceExecution,
         })
-        const url = `http://${options.host}:${service.port}`
+        const host = isIP(options.host) === 6 ? `[${options.host}]` : options.host
+        const url = `http://${host}:${service.port}`
         if (globalOptions(program).json)
           console.log(
             JSON.stringify({ ok: true, url, directory: service.store.root }),

@@ -5,7 +5,7 @@ import type {
   StoreShotConfig,
 } from "./shared.js"
 
-export const APPLE_SPECS_CHECKED = "2026-10-09"
+export const APPLE_SPECS_CHECKED = "2026-10-11"
 export const SCREENSHOT_SPEC_URL =
   "https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications/"
 export const CREATIVE_SPEC_URL =
@@ -26,7 +26,7 @@ export interface AssetSpec {
   kind: "screenshots" | "header" | "search-results" | "universal"
   sizes: readonly (readonly [number, number])[]
   rotate: boolean
-  requirement: "required" | "optional"
+  requirement: "required" | "optional" | "upcoming"
   guidance: string
   maxCount: number
 }
@@ -86,7 +86,7 @@ export const ASSET_SPECS: AssetSpec[] = [
     "iPhone Duo · Outer display",
     "iphone-duo",
     [[1398, 2034]],
-    "required",
+    "upcoming",
     "Design for this display, then check the inner layout. Required from April 2027 for apps using the iOS 27.1 SDK or later.",
   ),
   screenshot(
@@ -94,7 +94,7 @@ export const ASSET_SPECS: AssetSpec[] = [
     "iPhone Duo · Inner display",
     "iphone-duo",
     [[2007, 2853]],
-    "required",
+    "upcoming",
     "Show how your app uses the expanded display. Required from April 2027 for apps using the iOS 27.1 SDK or later.",
   ),
   screenshot(
@@ -208,7 +208,7 @@ export const ASSET_SPECS: AssetSpec[] = [
 ]
 /** Current creation choices; the full catalog remains available for stored artwork. */
 export const CREATION_SPECS = ASSET_SPECS.filter(
-  (spec) => spec.kind !== "screenshots" || spec.requirement === "required",
+  (spec) => spec.kind !== "screenshots" || spec.requirement !== "optional",
 )
 
 /** One default size per destination, with Watch consistency across languages. */

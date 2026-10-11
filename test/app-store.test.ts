@@ -47,6 +47,23 @@ test("Apple dimensions include Duo, creative placements, orientations and 3:2 ra
   assert.equal(acceptsSize(assetSpec("search-results")!, 2000, 1500), false)
   assert.equal(acceptsSize(assetSpec("header")!, 1646, 3840), false)
 })
+test("upcoming Duo slots remain creatable without preparation or missing-counterpart warnings", async () =>
+  fixture(async (store) => {
+    for (const specId of ["iphone-duo-outer", "iphone-duo-inner"]) {
+      const spec = assetSpec(specId)!
+      assert.equal(spec.requirement, "upcoming")
+      assert.ok(CREATION_SPECS.includes(spec))
+      const [width, height] = creationSize(spec)
+      const set = await store.createSet({ specId, name: spec.name, device: spec.name, locale: "en-US", width, height })
+      assert.deepEqual(readinessIssues(await store.readConfig(), [set]), [])
+    }
+    assert.deepEqual(await store.preparePage("default", "en-US"), [])
+    const page = await store.createPage({ name: "Duo draft" })
+    const spec = assetSpec("iphone-duo-outer")!
+    const [width, height] = creationSize(spec)
+    await store.createSet({ pageId: page.id, specId: spec.id, name: spec.name, device: spec.name, locale: "en-US", width, height })
+    assert.deepEqual(await store.preparePage(page.id, "en-US"), [])
+  }))
 test("prepare creates each required slot once, and preserves edited artwork", async () =>
   fixture(async (store) => {
     for (const device of ["iphone", "ipad", "iphone-duo", "watch", "mac"]) {
@@ -65,7 +82,7 @@ test("prepare creates each required slot once, and preserves edited artwork", as
     const sets = await store.preparePage("default", "en-US")
     assert.deepEqual(
       sets.map((set) => set.specId),
-      ["iphone", "iphone-duo-outer", "iphone-duo-inner", "ipad", "watch", "mac"],
+      ["iphone", "ipad", "watch", "mac"],
     )
     assert.equal((await store.preparePage("default", "en-US")).length, 0)
     const project = await store.readProject()
@@ -248,12 +265,8 @@ test("preparation uses device-matched source screenshots only in the page’s fi
     const iphone = prepared.find((set) => set.specId === "iphone")!
     assert.deepEqual(
       prepared.filter((set) => set.specId.startsWith("iphone-duo")).map((set) => set.specId),
-      ["iphone-duo-outer", "iphone-duo-inner"],
+      [],
     )
-    for (const set of prepared.filter((set) => set.specId.startsWith("iphone-duo"))) {
-      assert.match(set.areas[0].html, /duo.svg/)
-      assert.doesNotMatch(set.areas[0].html, /phone.svg/)
-    }
     assert.equal(iphone.areas.length, 1)
     assert.match(iphone.areas[0].html, /phone.svg/)
     assert.doesNotMatch(iphone.areas[0].html, /duo.svg/)
@@ -419,7 +432,7 @@ test("creative artwork can define the first language and blank pages have no imp
     )
   }))
 
-test("creation offers only current required displays at one fixed size while the schema retains alternatives", () => {
+test("creation offers current required and upcoming displays at one fixed size while the schema retains alternatives", () => {
   assert.deepEqual(
     CREATION_SPECS.filter((spec) => spec.kind === "screenshots").map((spec) => [
       spec.id,

@@ -230,8 +230,11 @@ storeshot -C ./screenshots render --locale fi
 ```
 
 `page prepare` fills missing required screenshot slots without replacing existing
-artwork. Creation uses one fixed size per required display, including both iPhone Duo
-outer and inner displays, and omits optional display slots. Source images are used for the page’s first language;
+artwork. Creation uses one fixed size per required or upcoming display and omits
+optional display overrides. iPhone Duo outer and inner displays are upcoming;
+create them explicitly with `set create --spec iphone-duo-outer` or
+`--spec iphone-duo-inner`. Preparation and readiness checks do not require them.
+Source images are used for the page’s first language;
 other languages start with independent drafts. Standard iPhone compositions do not
 reuse Duo captures. These are draft
 compositions, not finished screenshots. Edit the HTML/CSS files to finish imagery and copy. `page localize` copies source files, never translates
