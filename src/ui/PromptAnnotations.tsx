@@ -233,7 +233,7 @@ export function AnnotationSidebar() {
   if (!annotations) return null
   const { active, queue, toggle, remove, open, setOpen, copying, copyFailed, storageUnavailable, copyPrompt } = annotations
   return (
-    <div className="shrink-0 space-y-0.5 border-t px-2.5 py-3">
+    <div className="flex shrink-0 flex-col gap-0.5 border-t px-2.5 py-3">
       <Button
         variant="ghost"
         aria-pressed={active}

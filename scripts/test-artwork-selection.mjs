@@ -24,6 +24,24 @@ try {
   await page.goto(`http://127.0.0.1:${service.port}/pages/${set.pageId}`)
   await page.waitForFunction(() => [...document.querySelectorAll('main iframe')].length === 6 && [...document.querySelectorAll('main iframe')].every(f => f.contentDocument?.querySelector('tspan') && getComputedStyle(f).pointerEvents === 'auto'))
   const frames = await page.$$('main iframe')
+  async function checkQueueLayout() {
+    const measure = () => page.evaluate(() => {
+      const annotate = document.querySelector('button[aria-keyshortcuts="A"]')
+      return [...annotate.parentElement.querySelectorAll('button')].map(el => {
+        const rect = el.getBoundingClientRect()
+        return { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+      })
+    })
+    const before = await measure()
+    await page.click('[data-slot="popover-trigger"]')
+    await page.waitForSelector('[data-slot="popover-content"]')
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+    assert.deepEqual(await measure(), before, 'Opening Prompt queue keeps sidebar buttons in place')
+    await page.keyboard.press('Escape')
+    await page.waitForSelector('[data-slot="popover-content"]', { hidden: true })
+    assert.deepEqual(await measure(), before, 'Closing Prompt queue keeps sidebar buttons in place')
+  }
+  await checkQueueLayout()
   async function drag(index, selector = 'tspan') {
     const element = frames[index]
     await element.scrollIntoView()
@@ -98,6 +116,7 @@ try {
   await page.waitForSelector('textarea[aria-label="Comment"]', { hidden: true })
   const comments = await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('storeshot:annotations:')).flatMap(key => JSON.parse(localStorage.getItem(key))).map(note => note.comment))
   assert.deepEqual(comments, ['Shorten this headline.\nKeep the map.'], 'Enter submits the multiline annotation to the queue')
+  await checkQueueLayout()
   await page.click('button[aria-keyshortcuts="A"]')
   await page.waitForFunction(() => document.querySelector('button[aria-keyshortcuts="A"]').getAttribute('aria-pressed') === 'true')
   await frames[1].evaluate(el => el.contentWindow.focus())
