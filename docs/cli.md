@@ -5,6 +5,36 @@ It keeps the complete source project in ordinary HTML, JSON, and image files, wh
 providing validated commands for the operations where stable behavior and
 machine-readable results are useful.
 
+## Install the agent skill
+
+The npm package includes the complete StoreShot skill at
+`.agents/skills/storeshot/`, including its references and example artwork. Install
+that bundled version so the instructions match your CLI:
+
+```bash
+npm install --global storeshot
+npx skills add "$(npm root -g)/storeshot/.agents/skills/storeshot" --global
+```
+
+The skill installer lets you select your coding agents. To target Codex and
+Claude Code explicitly, add `--agent codex claude-code`. The command above uses
+POSIX shell syntax; in PowerShell, use `"$(npm root -g)\storeshot\.agents\skills\storeshot"`
+for the path.
+
+For a project-local npm installation, run from that project's root:
+
+```bash
+npx skills add ./node_modules/storeshot/.agents/skills/storeshot
+```
+
+Re-run the skill installation after updating StoreShot to refresh the installed
+instructions. You can also install manually by copying the entire `storeshot/`
+skill directory into your agent's skills directory; keep its references and
+assets together. Installing the npm package alone does not change agent settings.
+
+This follows the [Agent Skills directory format](https://agentskills.io/specification)
+and uses the [skills CLI's local-directory installation](https://github.com/vercel-labs/skills).
+
 ## Selecting a project
 
 Commands use the current directory by default. Use the global `-C` option to

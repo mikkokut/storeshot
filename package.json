@@ -25,6 +25,7 @@
     "storeshot": "./dist/cli.js"
   },
   "files": [
+    ".agents/skills/storeshot",
     "CHANGELOG.md",
     "CONTRIBUTING.md",
     "dist",
@@ -48,7 +49,8 @@
     "test:ui": "node --import tsx scripts/test-artwork-selection.mjs",
     "licenses": "node scripts/generate-third-party-licenses.mjs",
     "check:licenses": "node scripts/generate-third-party-licenses.mjs --check",
-    "check": "npm run check:licenses && npm run check:catalog && npm run typecheck && npm test && npm run build && npm run test:ui",
+    "check:package": "node scripts/check-package.mjs",
+    "check": "npm run check:licenses && npm run check:catalog && npm run typecheck && npm test && npm run build && npm run check:package && npm run test:ui",
     "prepublishOnly": "npm run check",
     "check:catalog": "node --import tsx scripts/check-asset-catalog.mjs"
   },

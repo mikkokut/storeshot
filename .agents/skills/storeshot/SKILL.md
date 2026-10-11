@@ -14,7 +14,7 @@ Create editable, local screenshot projects and inspect the actual rendered artwo
 3. For a new project, run `storeshot init ./screenshots`. For an existing project, inspect it before changing anything. All examples below use `./screenshots`; substitute the actual project path.
 4. Start `storeshot dev ./screenshots` in a persistent terminal session. It opens the user's browser; share the URL printed by the server. Use `--port 4174` if needed, or `--no-open` if opening the URL yourself. Keep the server running during edits and handoff so the user can review. Reuse an existing server only after verifying its project folder.
 
-The workspace watches project files and updates previews on save, including edits made by the agent. The user can browse product pages and click a screenshot for the fullscreen collection viewer while you work. Edit through files and CLI commands; browser automation is optional for inspection.
+The workspace watches project files and updates previews on save, including edits made by the agent. The user can review screenshots inline, annotate elements or selected text, and copy feedback with the target artwork paths while you work. Edit through files and CLI commands; browser automation is optional for inspection.
 
 ## Understand the project
 

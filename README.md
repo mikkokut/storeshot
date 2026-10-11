@@ -1,182 +1,136 @@
 # StoreShot
 
-StoreShot is a local-first CLI and live preview workspace for creating App Store
-screenshots and creative assets, organized around App Store Connect. Each artboard is an ordinary HTML file with CSS. Edit files with
-your editor or coding agent, watch the browser preview update on save, and render
-full-resolution PNGs with headless Chrome.
+**Let your coding agent make your App Store screenshots.**
 
-> **Pre-release:** StoreShot is under active development, changes quickly, and
-> does not yet promise backward compatibility. It supports Apple App Store
-> screenshots today; Google Play support is planned.
+StoreShot gives Codex, Claude Code, or any other coding agent a place to design,
+review, and export App Store screenshots. Describe what you want and share your
+app captures. Your agent builds the artwork and you watch it appear in a live
+preview. When it's ready, export PNGs at the sizes Apple accepts.
+
+It's free, open source, and runs entirely on your machine.
+
+> **Pre-release:** StoreShot is changing quickly. It supports the Apple App Store
+> today; Google Play support is planned.
 
 StoreShot is already used in production for the iOS app
 [Lokimaps](https://www.lokimaps.com/).
 
 ## Why StoreShot?
 
-The project is a folder of HTML, JSON metadata, and assets. Browser-native layout
-supports CSS Grid, Flexbox, typography, transforms, and SVG without a canvas layer
-model. There is no account, database, hosted project, or remote backend.
+Screenshots go stale fast. You rename a button and dozens of images across
+devices and languages are out of date. Redoing them by hand in a design tool is
+the kind of chore that gets put off for months.
 
-## What it can do
+With StoreShot, your agent does that work. Every screenshot is a small web page,
+so anything your agent can write in HTML and CSS can end up on your product page.
+Ask for a change in plain language. The artwork is plain files in a folder, so
+the next update starts from where you left off.
 
-- Organize product pages with independent languages and artwork for every device.
-- Prepare required device screenshots at one fixed size for iPhone, iPad, Apple Watch, Mac, Apple TV, and Vision Pro.
-- Create Product Page Header, Search Results, and Universal Creative images with Apple’s accepted dimensions.
-- Copy artwork into another language or audience variation as independent compositions.
-- See missing required slots, invalid dimensions, and Watch consistency issues before upload.
-- Compose artwork in HTML/CSS with your editor or agent; click a screenshot to review the full collection in a fullscreen viewer.
-- Export ordered PNGs grouped by page, language, and destination, with an export manifest.
+## What you get
 
-StoreShot prepares **still images** locally. Uploading/submitting to Apple, running
-live experiments, analytics, app previews (video), and app icons remain in App Store
-Connect or Apple’s authoring tools.
+### Your agent does the design work
 
-See [App Store workspace architecture and Apple references](docs/app-store-workspace.md)
-for the model, specifications, and workflow.
+- **Start with one prompt.** Every empty device or creative slot has a suggested
+  prompt. Copy it, paste it into your agent, and add your captures and ideas.
+- **The StoreShot skill teaches your agent the workflow.** It creates
+  screenshots, checks the results, and renders previews, so you don't need to
+  explain the details.
+- **Changes appear as they happen.** Keep the workspace open while your agent
+  works and every edit shows up in the preview right away.
 
-## Quick start
+### Feedback without explaining where
 
-StoreShot requires Node.js 22.12 or newer. PNG export also requires Google Chrome
-or Chromium. Set `STORESHOT_CHROME=/path/to/chrome` for a nonstandard installation;
-the CLI also accepts `render --chrome /path/to/chrome`. Chrome is not downloaded
-by npm install.
+- **Point at what to change.** Turn on annotation mode, click any part of a
+  screenshot, and write what should change. You can also select text and
+  comment on it.
+- **Send feedback in one batch.** Comments collect in a prompt queue. One click
+  copies them as a single prompt that tells your agent exactly which screenshot
+  and element you meant.
+
+### Ready for App Store Connect
+
+- **The right sizes, without looking them up.** Create artwork for iPhone, iPad,
+  Apple Watch, Mac, Apple TV, and Vision Pro at the sizes Apple currently
+  requires. You can also prepare for the upcoming iPhone Duo displays.
+- **More than screenshots.** Create Product Page Header, Search Results, and
+  Universal Creative images at Apple's accepted dimensions.
+- **Find problems before you upload.** StoreShot flags missing required devices,
+  wrong dimensions, and inconsistent Apple Watch sizes.
+- **Organized exports.** Download ordered PNGs grouped by product page,
+  language, and device, ready to drop into App Store Connect.
+
+### Every language and audience
+
+- **Localize in a sentence.** Ask your agent to copy a finished language and
+  translate it. Each language is its own composition, so you can adjust any
+  layout that doesn't fit.
+- **Custom product pages.** Create separate pages for different audiences or
+  campaigns, each with its own languages and artwork.
+
+### Polish included
+
+- **Device frames and decorations.** A built-in catalog includes iPhone and iPad
+  frames, award laurels, lines, and decorative shapes your agent can search and
+  add.
+- **Any font, any layout.** Use your own brand fonts or hosted fonts, along with
+  gradients, overlapping phones, callouts, and anything else a browser can
+  render.
+
+### Yours, and local
+
+- **No account, no subscription, no upload.** Your project is a folder on your
+  machine. Put it in Git, share it with your team, or open it with any editor.
+- **Nothing to lock you in.** The artwork is ordinary HTML, CSS, and image files.
+
+## What StoreShot doesn't do
+
+StoreShot makes still images. You still use App Store Connect to upload and
+submit them, run product page experiments, and view analytics. App preview
+videos and app icons are made elsewhere.
+
+## Get started
+
+You'll need Node.js 22.12 or newer and Google Chrome or Chromium for PNG export.
 
 ```bash
 npm install --global storeshot
-mkdir app-store-screenshots
+npx skills add "$(npm root -g)/storeshot/.agents/skills/storeshot" --global
 storeshot init app-store-screenshots
 storeshot dev app-store-screenshots
 ```
 
-The command opens a local workspace at `http://127.0.0.1:4173`. To use a
-different port or avoid opening the browser:
+The skill installer lets you choose your coding agents and installs the skill
+bundled with your CLI. Re-run it after updating StoreShot. See the
+[skill installation guide](docs/cli.md#install-the-agent-skill) for project-local
+installation and PowerShell commands.
 
-```bash
-storeshot dev ./app-store-screenshots --port 4174 --no-open
-```
+Your workspace opens in the browser. Next, open the project folder in your
+coding agent. Copy the suggested prompt from any empty slot, share your app
+captures, and let the agent go.
 
-The default server is bound to the loopback interface. Be deliberate when using
-`--host` to expose it to another interface.
+If Chrome is installed somewhere unusual, set
+`STORESHOT_CHROME=/path/to/chrome`.
 
-## CLI and AI agents
+## Learn more
 
-StoreShot supports the full screenshot workflow without requiring browser
-automation. Commands can inspect the project, create and update sets, manage
-assets, validate project structure, and render real PNG previews or final
-output. Global `-C/--project` selects the project and `--json` provides stable
-machine-readable results.
-
-```bash
-storeshot -C ./app-store-screenshots status --json
-storeshot -C ./app-store-screenshots validate --json
-storeshot -C ./app-store-screenshots set show <set-id>
-storeshot -C ./app-store-screenshots render --set <set-id> --scale 0.25 --json
-```
-
-When `storeshot dev` is open, CLI and direct filesystem changes are streamed to
-the browser so the selected set and preview update in realtime. See the
-[CLI and agent workflow](docs/cli.md) for the complete command surface and a
-recommended inspect-edit-validate-render loop.
-
-## Project format
-
-StoreShot creates a transparent, portable project structure:
-
-```text
-app-store-screenshots/
-├── storeshot.json
-├── assets/
-│   ├── screenshots/
-│   ├── brand/
-│   ├── other/
-│   ├── .storeshot-imports.json   # Created when importing catalog assets
-│   └── .licenses/
-└── sets/
-    └── english-iphone-a1b2c3d4/
-        ├── index.json
-        ├── area-one.json
-        ├── area-one.html
-        ├── area-two.json
-        └── area-two.html
-```
-
-CLI renders are written to `renders/<page>/<locale>/<spec>/<collection-id>/` by default. They are generated
-output; teams can commit or ignore them according to their release workflow.
-
-The version 2 project config stores product pages and their languages. New pages start without a language; choose one when creating the first screenshot
-or artwork. Device destinations are selected per collection. Each version 3 collection manifest stores its `pageId`,
-`specId`, locale, pixel dimensions, and
-ordered artboard IDs. Each artboard has its own `<area-id>.json` metadata and
-`<area-id>.html` composition. The set ID comes from its folder name; rename the
-folder without changing JSON. New screenshot IDs are eight characters; an optional
-slug makes filenames descriptive, for example `a1b2c3d4-home-screen.json` and
-`a1b2c3d4-home-screen.html`. Renaming that suffix on both files preserves the ID
-and needs no JSON edits. File paths are inferred from these IDs. The HTML files are the source of truth; there
-is no embedded layer JSON. Reference assets from an artboard with paths such as
-`../../assets/screenshots/home.png`. Inline CSS is encouraged; local CSS, SVG,
-and fonts also work. Put fonts in `assets/other/` and use `@font-face`.
-
-Previews and exports render static HTML/CSS. External HTTP/HTTPS stylesheets and
-fonts are supported from any provider, including ordinary Bunny Fonts links:
-
-```html
-<link rel="stylesheet" href="https://fonts.bunny.net/css?family=geist:400,700&display=swap">
-<style>body { font-family: 'Geist', sans-serif; }</style>
-```
-
-Scripts, nested frames, and remote images remain blocked. Keep images in the
-project or embed them as data URLs. Hosted fonts need network access when uncached.
-The renderer waits for images and fonts before capturing the set's exact viewport.
-Use local fonts for consistent typography across machines.
-
-## Shipped assets
-
-Search and import individual device frames, laurels, lines, and decorative images:
-
-```bash
-storeshot asset search "iphone 17" --kind mockup --json
-storeshot asset show frameup-free-iphone-17-pro --json
-storeshot -C ./screenshots asset import frameup-free-iphone-17-pro
-storeshot -C ./screenshots asset installed --json
-storeshot -C ./screenshots asset inspect other/frameup-free-iphone-17-pro.svg --json
-```
-
-Imports are ordinary images under `assets/other/`, with locally saved geometry,
-source attribution, and licenses. SHA-256 matching identifies existing copies
-regardless of filenames and reports changed imports. Frames come from the
-MIT-licensed FrameUp Free project. See [the asset catalog](docs/asset-catalog.md)
-for rendering geometry, checksum behavior, and adding new shipped assets.
+- [App Store workspace](docs/app-store-workspace.md): how pages, languages,
+  and devices fit together, plus Apple's current specifications
+- [CLI and agent workflow](docs/cli.md): every command, for agents, scripts,
+  and power users
+- [Asset catalog](docs/asset-catalog.md): device frames, decorations, and how
+  imports work
 
 ## Develop from source
-
-From a checkout of this repository or your fork:
 
 ```bash
 npm ci
 npm run dev
 ```
 
-`npm run dev` starts the CLI in watch mode against the ignored `playground/`
-project and serves the React UI with Vite hot reload.
-
-Useful commands:
-
-| Command | Purpose |
-| --- | --- |
-| `npm run dev` | Run the development CLI and UI against `playground/` |
-| `npm run dev:website` | Preview the static website with Vite hot reload |
-| `npm run storeshot -- dev <dir> --no-open` | Run the unbuilt CLI against another folder |
-| `npm run typecheck` | Type-check the project |
-| `npm run build` | Build the CLI and browser UI |
-| `npm run licenses` | Regenerate bundled dependency license texts |
-| `npm run check` | Run license and catalog checks, type-checks, tests, and production builds |
-
-The repository also includes `AGENTS.md` and project-local Codex configuration
-for agent-assisted development.
-
-Maintainers can follow the [release guide](docs/releasing.md) to publish a new
-version through npm trusted publishing and GitHub Actions.
+`npm run dev` runs the CLI and UI with hot reload against the ignored
+`playground/` project. Run `npm run check` before submitting a change. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for details and the
+[release guide](docs/releasing.md) for publishing.
 
 ## Contributing and security
 

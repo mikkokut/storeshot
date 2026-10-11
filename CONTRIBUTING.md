@@ -68,6 +68,9 @@ Run the full gate before opening a pull request:
 npm run check
 ```
 
+The gate checks the npm package contents, including every bundled skill file.
+To run that check separately, build first and run `npm run check:package`.
+
 The gate also runs Chrome interaction checks against the built UI in a temporary
 project. To run those checks separately, use `npm run build:ui` followed by
 `npm run test:ui`. Google Chrome must be installed.
