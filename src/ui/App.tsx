@@ -6,7 +6,6 @@ import {
   LayoutDashboard,
   LayoutTemplate,
   LoaderCircle,
-  Search,
   Smartphone,
 } from "lucide-react"
 import { request, messageFor } from "@/api"
@@ -22,12 +21,6 @@ import { PageHeader } from "@/PageHeader"
 import { PageDialog } from "@/WorkspaceDialogs"
 import { appStoreLocale } from "@/app-store-locales"
 import { cn } from "@/lib/utils"
-import {
-  APPLE_SPECS_CHECKED,
-  CREATIVE_SPEC_URL,
-  SCREENSHOT_SPEC_URL,
-  readinessIssues,
-} from "../app-store"
 import type { StoreShotProject } from "../shared"
 
 const AssetsView = lazy(async () => ({
@@ -249,164 +242,77 @@ function Overview({
   project: StoreShotProject
   onNavigate: (path: string) => void
 }) {
-  const issues = readinessIssues(project.config, project.sets)
-  const missing = issues.filter((issue) => issue.code === "missing").length
-  const stats = [
-    ["Product pages", project.config.pages.length],
-    [
-      "Languages",
-      new Set(project.config.pages.flatMap((page) => page.localizations)).size,
-    ],
-    ["Missing required slots", missing],
-  ] as const
   return (
     <section className="flex min-h-0 flex-1 flex-col">
-      <PageHeader
-        eyebrow="App Store workspace"
-        title="Every page. Every language."
-        description="Prepare your screenshots and creative assets in one place. Create product pages to explore different audiences and ideas."
-      />
+      <PageHeader title="Overview" />
       <div className="min-h-0 flex-1 overflow-auto">
-        <div className="max-w-5xl space-y-6 p-6 lg:p-8">
-          <dl className="grid grid-cols-3 gap-3">
-            {stats.map(([label, count]) => (
-              <div key={label} className="rounded-xl border bg-card px-5 py-4">
-                <dt className="truncate text-[13px] text-muted-foreground">
-                  {label}
-                </dt>
-                <dd className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">
-                  {count}
-                </dd>
-              </div>
-            ))}
-          </dl>
-          <section
-            aria-labelledby="asset-coverage"
-            className="rounded-xl border bg-card"
-          >
-            <div className={cn("px-5 py-4", project.config.pages.length > 0 && "border-b")}>
-              <h2 id="asset-coverage" className="text-sm font-semibold">
-                Asset coverage
-              </h2>
-              <p className="mt-0.5 text-[13px] text-muted-foreground">
-                Readiness of each localization, stored as local artwork.
-              </p>
-            </div>
-            <ul className="divide-y">
-              {project.config.pages.map((page) => (
-                <li key={page.id} className="px-5 py-4">
-                  <div className="flex items-center justify-between gap-3">
+        <div className="max-w-5xl space-y-8 p-6 lg:p-8">
+          <section aria-labelledby="product-pages">
+            <h2 id="product-pages" className="mb-3 text-sm font-semibold">Product pages</h2>
+            {project.config.pages.length > 0 ? (
+              <ul className="divide-y overflow-hidden rounded-xl border bg-card">
+                {project.config.pages.map((page) => (
+                  <li key={page.id}>
                     <Button
-                      variant="link"
-                      className="h-auto min-w-0 gap-1 p-0 font-semibold text-foreground shadow-none"
+                      variant="ghost"
+                      className="h-auto w-full justify-start gap-4 rounded-none px-5 py-4 text-left"
                       onClick={() => onNavigate(`/pages/${page.id}`)}
                     >
-                      <span className="truncate">{page.name}</span>
-                      <ChevronRight className="text-muted-foreground" />
+                      <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground">
+                        <LayoutTemplate aria-hidden className="size-5" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-semibold">{page.name}</span>
+                        <span className="mt-1 block truncate text-xs font-normal text-muted-foreground">
+                          {page.localizations.length
+                            ? page.localizations.map((locale) => appStoreLocale(locale).name).join(" · ")
+                            : "No artwork yet"}
+                        </span>
+                      </span>
+                      <ChevronRight aria-hidden className="shrink-0 text-muted-foreground" />
                     </Button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="rounded-xl border border-dashed p-6">
+                <p className="text-sm font-medium">No product pages yet</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Ask your coding agent to use the StoreShot skill to create a
+                  product page and screenshots for your app.
+                </p>
+              </div>
+            )}
+          </section>
+          <section aria-labelledby="how-it-works">
+            <h2 id="how-it-works" className="mb-4 text-sm font-semibold">How it works</h2>
+            <ol className="grid gap-5 lg:grid-cols-3">
+              {[
+                {
+                  title: "Create with your agent",
+                  description: "Ask Codex, Claude Code, or another agent to use the StoreShot skill. Share your app captures and design ideas to create screenshots or add languages.",
+                },
+                {
+                  title: "Review and refine",
+                  description: "Open a product page to review your screenshots. Changes appear live as your agent works. Ask it to refine the design and copy.",
+                },
+                {
+                  title: "Export and upload",
+                  description: "Export your finished screenshots as PNGs from the product page, then upload them to App Store Connect.",
+                },
+              ].map(({ title, description }, index) => (
+                <li key={title} className="flex gap-3">
+                  <span className="grid size-6 shrink-0 place-items-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
+                    {index + 1}
+                  </span>
+                  <div>
+                    <h3 className="text-sm font-medium">{title}</h3>
+                    <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{description}</p>
                   </div>
-                  {page.localizations.length ? (
-                    <ul className="mt-3 flex flex-wrap gap-2">
-                      {page.localizations.map((locale) => {
-                        const pageIssues = issues.filter(
-                          (issue) =>
-                            issue.pageId === page.id && issue.locale === locale,
-                        )
-                        const prepared = project.sets.some(
-                          (set) =>
-                            set.pageId === page.id && set.locale === locale,
-                        )
-                        return (
-                          <li
-                            key={locale}
-                            className="inline-flex items-center gap-2 rounded-lg border bg-background px-2.5 py-1.5 text-[13px]"
-                          >
-                            <span
-                              aria-hidden
-                              className={cn(
-                                "size-1.5 shrink-0 rounded-full",
-                                pageIssues.length
-                                  ? "bg-amber-500"
-                                  : prepared
-                                    ? "bg-emerald-500"
-                                    : "bg-muted-foreground/40",
-                              )}
-                            />
-                            <span className="font-medium">
-                              {appStoreLocale(locale).name}
-                            </span>
-                            <span className="text-muted-foreground">
-                              {pageIssues.length
-                                ? `${pageIssues.length} missing or invalid`
-                                : prepared
-                                  ? "Assets prepared"
-                                  : "No artwork yet"}
-                            </span>
-                          </li>
-                        )
-                      })}
-                    </ul>
-                  ) : (
-                    <p className="mt-1.5 text-[13px] text-muted-foreground">
-                      No languages yet.
-                    </p>
-                  )}
                 </li>
               ))}
-            </ul>
+            </ol>
           </section>
-          <div className="grid gap-3 lg:grid-cols-2">
-            {[
-              {
-                icon: Smartphone,
-                title: "Required display sizes",
-                body: "Create one composition size for iPhone and one for iPad if your app supports it. App Store Connect scales these screenshots for smaller displays.",
-              },
-              {
-                icon: Search,
-                title: "Header & Search Results",
-                body: "Create dedicated artwork or a universal creative for both placements. These optional assets appear on iOS and iPadOS 27 and later.",
-              },
-            ].map(({ icon: Icon, title, body }) => (
-              <section
-                key={title}
-                className="flex gap-4 rounded-xl border bg-card p-5"
-              >
-                <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground">
-                  <Icon className="size-4" />
-                </span>
-                <div>
-                  <h2 className="text-sm font-semibold">{title}</h2>
-                  <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                    {body}
-                  </p>
-                </div>
-              </section>
-            ))}
-          </div>
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            Apple specifications checked {APPLE_SPECS_CHECKED}.{" "}
-            <a
-              className="font-medium text-foreground/80 underline underline-offset-4 hover:text-foreground"
-              href={SCREENSHOT_SPEC_URL}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Screenshot specifications
-            </a>{" "}
-            ·{" "}
-            <a
-              className="font-medium text-foreground/80 underline underline-offset-4 hover:text-foreground"
-              href={CREATIVE_SPEC_URL}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Creative specifications
-            </a>
-            . StoreShot prepares still images locally; submission, video
-            previews, app icons and live experiment results are managed in App
-            Store Connect.
-          </p>
         </div>
       </div>
     </section>

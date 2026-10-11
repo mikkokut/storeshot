@@ -242,6 +242,11 @@ text automatically. Copies record their source language.
 
 `set` is the low-level collection command. One collection occupies one page/language/
 specification slot. Without `--page`, new artwork uses the first page in the project; create a page first if the project has none. `set duplicate` places its independent copy on a new product page.
+`set create` starts with one empty white artboard: no placeholder copy or design.
+Its inline CSS sets the exact canvas size, zero page margins and padding,
+border-box sizing (including pseudo-elements), system fonts, and basic image
+defaults. `page prepare` uses the same plain template; when source captures are
+available, it includes each image fitted inside the canvas without cropping.
 Use `set update --page PAGE_ID --spec SPEC_ID` or `set write` to reassign artwork without resizing it.
 Unassigned artwork remains renderable, but does not satisfy App Store coverage.
 

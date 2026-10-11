@@ -23,9 +23,8 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { Choice } from "@/CreateSetForm"
-import { LocalePicker } from "@/LocalePicker"
-import { APP_STORE_LOCALES, appStoreLocale } from "@/app-store-locales"
+import { Choice } from "@/Choice"
+import { appStoreLocale } from "@/app-store-locales"
 import type { StoreShotProject, ProductPage, PageStore } from "../shared"
 
 export function PageDialog({
@@ -175,122 +174,6 @@ export function PageDialog({
           <Button type="submit" disabled={busy || !name.trim()}>
             {busy && <LoaderCircle className="animate-spin" />}
             {busy ? "Creating…" : "Create product page"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-export function LanguageDialog({
-  page,
-  locale,
-  open,
-  onOpenChange,
-  onChange,
-}: {
-  page: ProductPage
-  locale: string
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  onChange: (project: StoreShotProject, locale: string) => void
-}) {
-  const [target, setTarget] = useState(() =>
-    APP_STORE_LOCALES.find((entry) => !page.localizations.includes(entry.code))?.code ?? "",
-  )
-  const [source, setSource] = useState(locale)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  async function create() {
-    if (busy || !target || page.localizations.includes(target)) return
-    setBusy(true)
-    setError(null)
-    try {
-      const project = await request<StoreShotProject>(
-        `/api/pages/${page.id}/localizations`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            locale: target,
-            sourceLocale: source === "blank" ? undefined : source,
-          }),
-        },
-      )
-      onChange(project, target)
-      onOpenChange(false)
-    } catch (error) {
-      setError(messageFor(error))
-    } finally {
-      setBusy(false)
-    }
-  }
-  return (
-    <Dialog open={open} onOpenChange={(next) => {
-      if (busy) return
-      setError(null)
-      onOpenChange(next)
-    }}>
-      <DialogContent
-        render={
-          <form
-            onSubmit={(event) => {
-              event.preventDefault()
-              void create()
-            }}
-          />
-        }
-      >
-        <DialogHeader>
-          <DialogTitle>Add a localization</DialogTitle>
-          <DialogDescription>
-            Copy a language’s artwork as a starting point, then translate the
-            text and replace localized screenshots.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-4">
-          <Field>
-            <FieldLabel htmlFor="new-locale">Language</FieldLabel>
-            <LocalePicker
-              id="new-locale"
-              value={target}
-              onValueChange={setTarget}
-              disabled={busy}
-            />
-            {page.localizations.includes(target) && (
-              <p className="text-xs text-muted-foreground">
-                This language already exists on this page.
-              </p>
-            )}
-          </Field>
-          <Choice
-            label="Copy artwork from"
-            value={source}
-            onChange={setSource}
-            disabled={busy}
-            options={[
-              { value: "blank", label: "Start empty" },
-              ...page.localizations.map((code) => ({
-                value: code,
-                label: appStoreLocale(code).name,
-              })),
-            ]}
-          />
-        </div>
-        {error && (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        )}
-        <DialogFooter>
-          <DialogClose render={<Button type="button" variant="outline" disabled={busy} />}>
-            Cancel
-          </DialogClose>
-          <Button
-            type="submit"
-            disabled={busy || !target || page.localizations.includes(target)}
-          >
-            {busy && <LoaderCircle className="animate-spin" />}
-            {busy ? "Copying…" : "Add language"}
           </Button>
         </DialogFooter>
       </DialogContent>

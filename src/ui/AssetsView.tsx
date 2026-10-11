@@ -205,7 +205,6 @@ export function AssetsView({ project, onProjectChange }: AssetsViewProps) {
         onChange={uploadAssets}
       />
       <PageHeader
-        eyebrow="Project library"
         title="Asset Library"
         description="Keep source images here to reuse across your screenshots and artwork."
         actions={(
@@ -265,7 +264,7 @@ export function AssetsView({ project, onProjectChange }: AssetsViewProps) {
               {assets.length === 0 ? (
                 <ArtworkEmptyState
                   title={`No ${categoryDetails[category].label.toLowerCase()} yet`}
-                  description={`${categoryDetails[category].description}. Add source images to use in your compositions.`}
+                  description={`${categoryDetails[category].description}. Upload source images or ask your coding agent to add them using the StoreShot skill.`}
                   metadata="PNG, JPEG, WebP, or SVG · Up to 25 MB per file"
                   actions={(
                     <Button disabled={busy} onClick={() => fileInput.current?.click()}>

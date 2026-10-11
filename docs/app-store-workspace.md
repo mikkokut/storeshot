@@ -33,25 +33,31 @@ the project config has no root-level store.
 
 ## Workflow
 
-1. Upload source screenshots to Asset Library.
-2. Open a product page and choose a device or creative artwork tab. Choose the
-   language when creating the first screenshot or artwork. Every destination is
-   available without app settings. Each device uses one fixed export size.
-   The CLI `page prepare` command derives destinations from existing artwork and
-   source image dimensions (iPhone when neither exists), and can populate them from
-   matching source images for the page’s first language.
-3. Update the collection’s HTML/CSS files on disk to compose artwork. Change the
-   `areas` order in its JSON manifest to reorder images.
-4. Click a screenshot to open the fullscreen viewer. All images in the collection appear
-   fitted to the viewer; scroll horizontally to review them and close the dialog to return to the page.
-5. Add optional creative artwork. Universal Creative can serve both placements.
-6. Review all languages stacked under each device or creative artwork tab. Use
-   **Add new language** at the bottom of the listing to start empty or copy artwork
-   for translation, or duplicate a product page.
-   The remove action beside each language heading removes that language and all
-   its collections from the current page after confirmation. Other pages and
-   languages are preserved, and source assets remain on disk. Removing the
-   last language returns the page to its initial empty state.
+1. Open the project folder in Codex, Claude Code, or another coding agent.
+   Overview lists your product pages and explains the process. Open a page;
+   empty device and creative slots offer a short suggested prompt for the
+   StoreShot skill and selected destination. Copy it and send it to your agent.
+2. Share your app captures, brand assets, target audience, and visual direction.
+   Source images can also be uploaded to Asset Library.
+3. Ask the agent to create screenshots in your first language using the CLI, then
+   compose the artwork in HTML/CSS. Every device and creative destination is
+   available without app settings. The CLI `page prepare` command derives
+   destinations from existing artwork and source image dimensions (iPhone when
+   neither exists), and can populate them from matching source images for the
+   page’s first language.
+4. Keep the workspace open: file changes update the preview automatically. Use
+   the minus, plus, and reset controls to adjust preview zoom from 50–300%.
+   Previews start at 150%, and reset returns to that size; export dimensions stay
+   unchanged. Click
+   a screenshot to review the collection in the fullscreen viewer, centered on
+   the image you clicked. Ask your agent to refine the design or reorder the images.
+5. Ask your agent to add optional creative artwork or localize an existing
+   language with `page localize`, then translate and review the copy and layout.
+   Screenshot and language creation are handled by the agent through the CLI;
+   the workspace has no creation buttons for these operations.
+6. Review languages under each device or creative tab. The remove action beside
+   each language heading removes that language and its collections from the page
+   after confirmation. Other pages, languages, and source assets are preserved.
 7. Export your artwork; PNGs are organized by page, language, and destination.
 8. Preview cropping and submit in App Store Connect. Run experiments there.
 

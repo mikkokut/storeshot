@@ -26,7 +26,7 @@ export function ArtworkEmptyState({
       <h2 className="text-base font-semibold tracking-tight">{title}</h2>
       <p className="mt-1.5 max-w-md text-sm leading-relaxed text-pretty text-muted-foreground">{description}</p>
       {metadata && <p className="mt-3 text-xs text-muted-foreground tabular-nums">{metadata}</p>}
-      <div className="mt-6 flex flex-wrap justify-center gap-2">{actions}</div>
+      <div className="mt-6 flex w-full flex-wrap justify-center gap-2">{actions}</div>
       {footer && <p className="mt-4 text-xs text-muted-foreground">{footer}</p>}
     </div>
   )

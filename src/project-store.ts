@@ -362,7 +362,6 @@ export class ProjectStore {
           name: "Screenshot 1",
           html: createArtboardHtml(value.width, value.height, {
             locale: value.locale,
-            fullBleed: value.specId === "watch",
           }),
         },
       ],
@@ -680,7 +679,6 @@ export class ProjectStore {
             html: createArtboardHtml(width, height, {
               locale,
               image: `../../assets/${asset.id.split("/").map(encodeURIComponent).join("/")}`,
-              fullBleed: spec.id === "watch",
             }),
           }))
           await this.writeSetUnlocked(collection.id, collection)

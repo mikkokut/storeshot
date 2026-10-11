@@ -6,7 +6,9 @@ import {
   Download,
   LoaderCircle,
   Monitor,
+  Minus,
   Plus,
+  Minimize2,
   Smartphone,
   Tablet,
   Tv,
@@ -18,14 +20,13 @@ import { ArtworkViewer } from "@/ArtworkViewer"
 import { PageHeader } from "@/PageHeader"
 import { PageTitle } from "@/PageTitle"
 import { ArtworkEmptyState } from "@/ArtworkEmptyState"
-import { request, messageFor } from "@/api"
+import { messageFor } from "@/api"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { CreateSetDialog } from "@/CreateSetForm"
+import { AgentPrompt } from "@/AgentPrompt"
 import {
-  LanguageDialog,
   RemoveLanguageDialog,
   PageDialog,
   RemovePageDialog,
@@ -50,6 +51,8 @@ interface WorkspaceProps {
   page: ProductPage
   onChange: (project: StoreShotProject, pageId?: string | null) => void
 }
+const DEFAULT_PREVIEW_ZOOM = 150
+
 const DEVICE_TABS: {
   id: AppDevice
   title: string
@@ -75,10 +78,15 @@ export function ProductPageWorkspace({
   onChange,
 }: WorkspaceProps) {
   const [viewingId, setViewingId] = useState<string | null>(null)
+  const [viewingAreaId, setViewingAreaId] = useState<string | undefined>()
+  function viewArtwork(id: string, areaId?: string) {
+    setViewingId(id)
+    setViewingAreaId(areaId)
+  }
   const viewing = project.sets.find(
     (set) => set.id === viewingId && set.pageId === page.id,
   )
-  const [languageDialogOpen, setLanguageDialogOpen] = useState(false)
+  const [zoom, setZoom] = useState(DEFAULT_PREVIEW_ZOOM)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const collections = project.sets.filter(
@@ -100,16 +108,12 @@ export function ProductPageWorkspace({
       setBusy(false)
     }
   }
-  async function created() {
-    onChange(await request<StoreShotProject>("/api/project"))
-  }
   const preserved = collections.filter(
     (set) => !specs.some((spec) => spec.id === set.specId),
   )
   return (
-    <Tabs defaultValue="screenshots" className="min-h-0 flex-1">
+    <Tabs defaultValue="screenshots" className="relative min-h-0 flex-1">
       <PageHeader
-        eyebrow={page.store === "app-store" ? "App Store" : "Google Play"}
         title={<PageTitle key={page.id} page={page} onChange={onChange} />}
         actions={
           <>
@@ -147,15 +151,21 @@ export function ProductPageWorkspace({
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      <TabsContent value="screenshots" className="overflow-auto p-6 lg:p-8">
+      {collections.length > 0 && (
+        <p className="border-b px-6 py-3 text-sm text-muted-foreground lg:px-8">
+          To add screenshots or languages, ask your agent to update this project.
+          Keep StoreShot open to review changes as they arrive.
+        </p>
+      )}
+      <TabsContent value="screenshots" className="overflow-auto p-6 pb-24 lg:p-8 lg:pb-24">
         <DeviceArtwork
           key={page.id}
           project={project}
           page={page}
           collections={collections}
           onChange={onChange}
-          onCreate={created}
-          onView={setViewingId}
+          onView={viewArtwork}
+          zoom={zoom}
         />
         {preserved.length > 0 && (
           <details className="group mt-8 rounded-xl border bg-card">
@@ -179,7 +189,7 @@ export function ProductPageWorkspace({
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => setViewingId(set.id)}
+                    onClick={() => viewArtwork(set.id)}
                   >
                     View artwork
                   </Button>
@@ -188,18 +198,8 @@ export function ProductPageWorkspace({
             </ul>
           </details>
         )}
-        {page.localizations.length > 0 && (
-          <Button
-            className="mt-8"
-            variant="outline"
-            onClick={() => setLanguageDialogOpen(true)}
-          >
-            <Plus />
-            Add new language
-          </Button>
-        )}
       </TabsContent>
-      <TabsContent value="creative" className="overflow-auto p-6 lg:p-8">
+      <TabsContent value="creative" className="overflow-auto p-6 pb-24 lg:p-8 lg:pb-24">
         <Tabs defaultValue="header">
           <TabsList aria-label="Creative placement" variant="segmented">
             <TabsTrigger value="header" variant="segmented">
@@ -220,36 +220,56 @@ export function ProductPageWorkspace({
                   collections={collections}
                   onChange={onChange}
                   page={page}
-                  project={project}
-                  onCreate={created}
-                  onView={setViewingId}
+                  onView={viewArtwork}
+                  zoom={zoom}
                 />
               </TabsContent>
             ),
           )}
         </Tabs>
-        {page.localizations.length > 0 && (
-          <Button
-            className="mt-8"
-            variant="outline"
-            onClick={() => setLanguageDialogOpen(true)}
-          >
-            <Plus />
-            Add new language
-          </Button>
-        )}
       </TabsContent>
-      <LanguageDialog
-        key={`${page.id}/${page.localizations.join("/")}`}
-        page={page}
-        locale={page.localizations[0] ?? "blank"}
-        open={languageDialogOpen}
-        onOpenChange={setLanguageDialogOpen}
-        onChange={(project) => onChange(project)}
-      />
+      {collections.some((set) => set.areas.length > 0) && (
+        <div
+          role="group"
+          aria-label="Preview zoom"
+          className="absolute right-6 bottom-5 z-20 flex items-center gap-1 rounded-xl border bg-background p-1.5 shadow-md lg:right-8"
+        >
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Zoom out"
+            title="Zoom out"
+            disabled={zoom <= 50}
+            onClick={() => setZoom((value) => Math.max(50, value - 25))}
+          >
+            <Minus aria-hidden />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Reset zoom"
+            title="Reset zoom"
+            disabled={zoom === DEFAULT_PREVIEW_ZOOM}
+            onClick={() => setZoom(DEFAULT_PREVIEW_ZOOM)}
+          >
+            <Minimize2 aria-hidden />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Zoom in"
+            title="Zoom in"
+            disabled={zoom >= 300}
+            onClick={() => setZoom((value) => Math.min(300, value + 25))}
+          >
+            <Plus aria-hidden />
+          </Button>
+        </div>
+      )}
       {viewing && (
         <ArtworkViewer
           set={viewing}
+          initialAreaId={viewingAreaId}
           onClose={() => setViewingId(null)}
         />
       )}
@@ -262,15 +282,15 @@ function DeviceArtwork({
   page,
   collections,
   onChange,
-  onCreate,
   onView,
+  zoom,
 }: {
   project: StoreShotProject
   page: ProductPage
   collections: ScreenshotSet[]
   onChange: (project: StoreShotProject) => void
-  onCreate: (set: ScreenshotSet) => Promise<void>
-  onView: (id: string) => void
+  onView: (id: string, areaId?: string) => void
+  zoom: number
 }) {
   const [device, setDevice] = useState<AppDevice>(
     project.sets.flatMap((set) => {
@@ -313,9 +333,8 @@ function DeviceArtwork({
               collections={collections}
               onChange={onChange}
               page={page}
-              project={project}
-              onCreate={onCreate}
               onView={onView}
+              zoom={zoom}
             />
           </TabsContent>
         )
@@ -335,9 +354,8 @@ function ArtworkLanguages({
   collections: ScreenshotSet[]
   page: ProductPage
   onChange: (project: StoreShotProject) => void
-  project: StoreShotProject
-  onCreate: (set: ScreenshotSet) => Promise<void>
-  onView: (id: string) => void
+  onView: (id: string, areaId?: string) => void
+  zoom: number
 }) {
   const locales = page.localizations.length ? page.localizations : [""]
   return (
@@ -376,46 +394,35 @@ function ArtworkSlot({
   set,
   page,
   locale,
-  project,
-  onCreate,
   onView,
+  zoom,
 }: {
   spec: AssetSpec
   set?: ScreenshotSet
   page: ProductPage
   locale: string
-  project: StoreShotProject
-  onCreate: (set: ScreenshotSet) => Promise<void>
-  onView: (id: string) => void
+  onView: (id: string, areaId?: string) => void
+  zoom: number
 }) {
   const isScreenshot = spec.kind === "screenshots"
   const name =
     spec.device === "creative" || spec.device === "iphone-duo"
       ? spec.name
       : DEVICE_LABELS[spec.device]
-  const create = (
-    <CreateSetDialog
-      key={`${page.id}/${locale}/${spec.id}`}
-      spec={spec}
-      pageId={page.id}
-      locale={locale}
-      sets={project.sets}
-      onCreate={onCreate}
-      label={`Create ${name}${isScreenshot ? " screenshots" : " artwork"}`}
-    />
-  )
   if (!set)
     return (
       <ArtworkEmptyState
         title={`No ${name} ${isScreenshot ? "screenshots" : "artwork"} yet`}
-        description={
-          isScreenshot
-            ? `Create the first composition${locale ? ` for ${appStoreLocale(locale).name}` : " and choose its language"}. Add your app imagery, tell its story, and export at the right size.`
-            : spec.guidance
-        }
+        description={`Ask your agent to design ${name} ${isScreenshot ? "screenshots" : "artwork"}${locale ? ` in ${appStoreLocale(locale).name}` : " in your first language"}. Your preview updates as it saves changes.`}
         metadata={`${spec.sizes[0].join(" × ")} px · ${isScreenshot ? "1–10 screenshots" : "1 PNG image"}`}
-        actions={create}
-        footer={spec.requirement === "upcoming" ? spec.guidance : isScreenshot ? "Source images are available from your Asset Library." : undefined}
+        actions={
+          <AgentPrompt
+            page={page}
+            spec={spec}
+            locale={locale}
+          />
+        }
+        footer={spec.requirement === "upcoming" ? spec.guidance : undefined}
       />
     )
   return (
@@ -427,7 +434,8 @@ function ArtworkSlot({
       )}
       <ArtworkStrip
         set={set}
-        onOpen={() => onView(set.id)}
+        zoom={zoom}
+        onOpen={(areaId) => onView(set.id, areaId)}
       />
     </div>
   )
@@ -436,11 +444,13 @@ function ArtworkSlot({
 function ArtworkStrip({
   set,
   onOpen,
+  zoom,
 }: {
   set: ScreenshotSet
-  onOpen: () => void
+  onOpen: (areaId: string) => void
+  zoom: number
 }) {
-  const scale = Math.min(380 / set.canvas.height, 660 / set.canvas.width, 1)
+  const scale = Math.min(380 / set.canvas.height, 660 / set.canvas.width, 1) * zoom / 100
   return (
     <div className="-m-1 flex gap-5 overflow-x-auto p-1 pb-4">
       {set.areas.map((area, index) => (
@@ -450,7 +460,7 @@ function ArtworkStrip({
           aria-label={`Open ${area.name}`}
           className="group min-w-0 shrink-0 rounded-xl text-left outline-none"
           style={{ width: set.canvas.width * scale }}
-          onClick={onOpen}
+          onClick={() => onOpen(area.id)}
         >
           <ArtworkPreview
             set={set}
