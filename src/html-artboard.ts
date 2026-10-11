@@ -43,3 +43,6 @@ ${image}
 /** Opaque-origin sandbox: project documents cannot execute scripts or access the editor. */
 export const ARTBOARD_CSP =
   "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline' 'self' https: http:; font-src 'self' data: https: http:; base-uri 'none'; form-action 'none'; frame-src 'none'"
+
+/** Selectable previews permit editor DOM access, while artwork scripts remain disabled. */
+export const SELECTABLE_ARTBOARD_CSP = ARTBOARD_CSP.replace("sandbox;", "sandbox allow-same-origin;")

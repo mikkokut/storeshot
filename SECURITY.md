@@ -28,6 +28,9 @@ Artboards are served from a restricted resource endpoint and displayed in
 sandboxed iframes. Static HTML/CSS, local images and fonts, and data URLs are
 supported, as are HTTP/HTTPS stylesheets and fonts from any host. Artboard
 JavaScript, forms, nested frames, and other remote resource loads are blocked.
+Selectable screenshot previews allow the editor to read the artwork DOM for
+text selection; their sandbox still prevents artwork scripts from executing.
+Other previews and export resources retain an opaque origin.
 Chrome export uses an isolated browser session and a loopback
 resource server. Request interception allows project resources plus external
 HTTP/HTTPS stylesheets and fonts. Symlinked project resources are rejected.

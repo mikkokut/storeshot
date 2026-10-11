@@ -68,6 +68,10 @@ Run the full gate before opening a pull request:
 npm run check
 ```
 
+The gate also runs Chrome interaction checks against the built UI in a temporary
+project. To run those checks separately, use `npm run build:ui` followed by
+`npm run test:ui`. Google Chrome must be installed.
+
 For UI changes, also exercise the affected workflow in the browser. Keep commits
 focused, explain user-visible behavior in the pull request, and call out project
 format changes explicitly.

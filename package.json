@@ -45,9 +45,10 @@
     "build:ui": "vite build",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test test/*.test.ts",
+    "test:ui": "node --import tsx scripts/test-artwork-selection.mjs",
     "licenses": "node scripts/generate-third-party-licenses.mjs",
     "check:licenses": "node scripts/generate-third-party-licenses.mjs --check",
-    "check": "npm run check:licenses && npm run check:catalog && npm run typecheck && npm test && npm run build",
+    "check": "npm run check:licenses && npm run check:catalog && npm run typecheck && npm test && npm run build && npm run test:ui",
     "prepublishOnly": "npm run check",
     "check:catalog": "node --import tsx scripts/check-asset-catalog.mjs"
   },

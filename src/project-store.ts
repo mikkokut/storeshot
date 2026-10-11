@@ -1002,7 +1002,7 @@ export class ProjectStore {
         )
         if (!isRecord(metadata)) throw new Error("Invalid artboard metadata")
         const html = await this.readManagedFile(path.join(directory, `${stem}.html`), directory, "utf8")
-        return { id: areaId, name: metadata.name, html }
+        return { id: areaId, name: metadata.name, html, htmlPath: `sets/${id}/${stem}.html` }
       }),
     )
     const result = parseScreenshotSet({
@@ -1010,6 +1010,7 @@ export class ProjectStore {
       id,
       areas,
     })
+    result.areas.forEach((area, index) => { area.htmlPath = areas[index].htmlPath })
     return result
   }
 

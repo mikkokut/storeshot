@@ -96,6 +96,8 @@ export interface StoreShotProject {
 
 /** Metadata and HTML are hydrated from sets/<set-id>/<area-id>[-slug].{json,html}. */
 export interface ScreenshotArea {
+  /** Project-relative artwork filename, hydrated from disk and never persisted. */
+  htmlPath?: string
   /** Derived for live previews; never persisted in the collection document. */
   previewRevision?: string
   id: string
@@ -116,4 +118,18 @@ export interface ScreenshotSet {
   specId: string
   sourceLocale?: string
   areas: ScreenshotArea[]
+}
+
+/** Rendered artwork evidence for a clicked annotation target. */
+export interface ArtworkAnnotationContext {
+  x: number
+  y: number
+  width: number
+  height: number
+  target?: string
+  role?: string
+  selector?: string
+  path?: string
+  source?: string
+  rect?: { x: number; y: number; width: number; height: number }
 }

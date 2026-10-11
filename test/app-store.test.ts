@@ -524,7 +524,7 @@ test("rejected metadata changes do not add a localization", async () =>
       /dimensions/,
     )
     assert.deepEqual(await store.readConfig(), before)
-    assert.deepEqual(await store.readSet(set.id), set)
+    assert.deepEqual(await store.readSet(set.id), { ...set, areas: set.areas.map(area => ({ ...area, htmlPath: `sets/${set.id}/${area.id}.html` })) })
   }))
 
 test("preparation uses exact TV dimensions and honors screenshot device overrides", async () =>

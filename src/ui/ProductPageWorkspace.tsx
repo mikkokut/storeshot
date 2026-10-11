@@ -16,7 +16,6 @@ import {
   Glasses,
 } from "lucide-react"
 import { ArtworkPreview } from "@/ArtworkPreview"
-import { ArtworkViewer } from "@/ArtworkViewer"
 import { PageHeader } from "@/PageHeader"
 import { PageTitle } from "@/PageTitle"
 import { ArtworkEmptyState } from "@/ArtworkEmptyState"
@@ -77,15 +76,6 @@ export function ProductPageWorkspace({
   page,
   onChange,
 }: WorkspaceProps) {
-  const [viewingId, setViewingId] = useState<string | null>(null)
-  const [viewingAreaId, setViewingAreaId] = useState<string | undefined>()
-  function viewArtwork(id: string, areaId?: string) {
-    setViewingId(id)
-    setViewingAreaId(areaId)
-  }
-  const viewing = project.sets.find(
-    (set) => set.id === viewingId && set.pageId === page.id,
-  )
   const [zoom, setZoom] = useState(DEFAULT_PREVIEW_ZOOM)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -164,7 +154,6 @@ export function ProductPageWorkspace({
           page={page}
           collections={collections}
           onChange={onChange}
-          onView={viewArtwork}
           zoom={zoom}
         />
         {preserved.length > 0 && (
@@ -178,7 +167,7 @@ export function ProductPageWorkspace({
               {preserved.map((set) => (
                 <li
                   key={set.id}
-                  className="flex items-center justify-between gap-3 px-4 py-2.5"
+                  className="space-y-4 p-4"
                 >
                   <span className="min-w-0 truncate text-sm">
                     {set.name}
@@ -186,13 +175,7 @@ export function ProductPageWorkspace({
                       {set.canvas.width} × {set.canvas.height}
                     </span>
                   </span>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => viewArtwork(set.id)}
-                  >
-                    View artwork
-                  </Button>
+                  <ArtworkStrip set={set} zoom={zoom} />
                 </li>
               ))}
             </ul>
@@ -220,7 +203,6 @@ export function ProductPageWorkspace({
                   collections={collections}
                   onChange={onChange}
                   page={page}
-                  onView={viewArtwork}
                   zoom={zoom}
                 />
               </TabsContent>
@@ -266,13 +248,6 @@ export function ProductPageWorkspace({
           </Button>
         </div>
       )}
-      {viewing && (
-        <ArtworkViewer
-          set={viewing}
-          initialAreaId={viewingAreaId}
-          onClose={() => setViewingId(null)}
-        />
-      )}
     </Tabs>
   )
 }
@@ -282,14 +257,12 @@ function DeviceArtwork({
   page,
   collections,
   onChange,
-  onView,
   zoom,
 }: {
   project: StoreShotProject
   page: ProductPage
   collections: ScreenshotSet[]
   onChange: (project: StoreShotProject) => void
-  onView: (id: string, areaId?: string) => void
   zoom: number
 }) {
   const [device, setDevice] = useState<AppDevice>(
@@ -333,7 +306,6 @@ function DeviceArtwork({
               collections={collections}
               onChange={onChange}
               page={page}
-              onView={onView}
               zoom={zoom}
             />
           </TabsContent>
@@ -354,7 +326,6 @@ function ArtworkLanguages({
   collections: ScreenshotSet[]
   page: ProductPage
   onChange: (project: StoreShotProject) => void
-  onView: (id: string, areaId?: string) => void
   zoom: number
 }) {
   const locales = page.localizations.length ? page.localizations : [""]
@@ -394,14 +365,12 @@ function ArtworkSlot({
   set,
   page,
   locale,
-  onView,
   zoom,
 }: {
   spec: AssetSpec
   set?: ScreenshotSet
   page: ProductPage
   locale: string
-  onView: (id: string, areaId?: string) => void
   zoom: number
 }) {
   const isScreenshot = spec.kind === "screenshots"
@@ -435,7 +404,6 @@ function ArtworkSlot({
       <ArtworkStrip
         set={set}
         zoom={zoom}
-        onOpen={(areaId) => onView(set.id, areaId)}
       />
     </div>
   )
@@ -443,40 +411,34 @@ function ArtworkSlot({
 
 function ArtworkStrip({
   set,
-  onOpen,
   zoom,
 }: {
   set: ScreenshotSet
-  onOpen: (areaId: string) => void
   zoom: number
 }) {
   const scale = Math.min(380 / set.canvas.height, 660 / set.canvas.width, 1) * zoom / 100
   return (
     <div className="-m-1 flex gap-5 overflow-x-auto p-1 pb-4">
       {set.areas.map((area, index) => (
-        <button
-          type="button"
+        <figure
           key={area.id}
-          aria-label={`Open ${area.name}`}
-          className="group min-w-0 shrink-0 rounded-xl text-left outline-none"
+          className="min-w-0 shrink-0"
           style={{ width: set.canvas.width * scale }}
-          onClick={() => onOpen(area.id)}
         >
           <ArtworkPreview
             set={set}
             area={area}
             scale={scale}
-            decorative
-            frameClassName="rounded-xl bg-white shadow-xs ring-1 ring-black/10 transition-shadow group-hover:shadow-md group-hover:ring-black/15 group-focus-visible:ring-3 group-focus-visible:ring-ring/60"
+            frameClassName="rounded-xl bg-white shadow-xs ring-1 ring-black/10"
           >
-          <p className="mt-2.5 truncate text-[13px]" title={area.name}>
+          <figcaption className="mt-2.5 truncate text-[13px]" title={area.name}>
             <span className="mr-1.5 text-muted-foreground tabular-nums">
               {String(index + 1).padStart(2, "0")}
             </span>
             {area.name}
-          </p>
+          </figcaption>
           </ArtworkPreview>
-        </button>
+        </figure>
       ))}
     </div>
   )

@@ -48,9 +48,8 @@ the project config has no root-level store.
 4. Keep the workspace open: file changes update the preview automatically. Use
    the minus, plus, and reset controls to adjust preview zoom from 50–300%.
    Previews start at 150%, and reset returns to that size; export dimensions stay
-   unchanged. Click
-   a screenshot to review the collection in the fullscreen viewer, centered on
-   the image you clicked. Ask your agent to refine the design or reorder the images.
+   unchanged. Review artwork directly on the page. Ask your agent to refine the
+   design or reorder the images.
 5. Ask your agent to add optional creative artwork or localize an existing
    language with `page localize`, then translate and review the copy and layout.
    Screenshot and language creation are handled by the agent through the CLI;
@@ -115,3 +114,29 @@ The UI deliberately does not pretend to run tests, publish pages, or report Appl
 approval. Video previews, icons, promotional text, keywords, deep links, submission,
 and analytics are managed externally. Numeric crop-safe areas are not invented;
 use Apple's templates and App Store Connect preview for final placement checks.
+
+### Annotate screenshots
+
+Turn on **Annotate** at the bottom of the sidebar, or press **A**, then click a
+screenshot and describe what should change. A banner at the top stays visible
+while you annotate. Press **Enter** to add your comment or **Shift+Enter** for a
+new line. A numbered marker shows where you
+clicked. Annotation works on screenshot previews, but not on source assets or
+header artwork. Press **Esc** or **A** again to finish. You can also select text in a
+screenshot and choose **Annotate** beneath the selection without turning on
+annotation mode. The selected text is shown with your comment and included in
+the copied prompt. Selecting another screenshot or clicking outside clears the
+previous selection. The action follows the selected text as you scroll and
+closes when that text leaves the visible preview.
+
+Comments collect in **Prompt queue** below the button, where you can review or
+remove them. **Copy prompt** combines them into one StoreShot skill prompt that
+contains each artwork file path and comment. When you click an element, it also
+includes the rendered target text, selector, DOM path, and artwork coordinates as
+evidence separate from your instructions. If capture is unavailable, the file
+and clicked position are still included. Paste it into your coding agent. Copied
+comments leave the queue; if copying fails, every comment stays. The queue is
+saved in this browser for each project and survives reloads.
+
+Press **⌘⇧C** on macOS or **Ctrl+Shift+C** on other platforms to copy the prompt
+without opening the queue. Shortcuts are ignored while you type in a field.

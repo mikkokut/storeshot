@@ -187,6 +187,10 @@ test("artboard resources stay inside the project and disk HTML edits emit events
     assert.equal(response.status, 200)
     assert.match(response.headers.get("content-security-policy") ?? "", /sandbox/)
     assert.equal(response.headers.get("cache-control"), "no-store")
+    const selectable = await fetch(`${url}?preview=selectable`)
+    assert.match(selectable.headers.get("content-security-policy") ?? "", /^sandbox allow-same-origin;/)
+    assert.doesNotMatch(selectable.headers.get("content-security-policy") ?? "", /allow-scripts/)
+    assert.doesNotMatch(response.headers.get("content-security-policy") ?? "", /allow-same-origin/)
     assert.equal((await fetch(url, { headers: { Origin: "https://example.com" } })).status, 403)
     assert.equal((await fetch(`${base}/artboards/storeshot.json`)).status, 404)
     assert.equal((await fetch(`${base}/artboards/sets/%2e%2e%2fstoreshot.json`)).status, 404)
@@ -249,4 +253,66 @@ test("App Store API prepares, localizes and clones page collections with validat
     assert.equal((await fetch(`${base}/api/pages/default/localizations/fi`, { method: "DELETE" })).status, 400)
     assert.equal((await fetch(`${base}/api/pages/missing/localizations/fi`, { method: "DELETE" })).status, 400)
   } finally { await service.close(); await rm(directory,{recursive:true,force:true}) }
+})
+
+test("annotation context identifies the rendered element without running artwork scripts", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "storeshot-annotation-context-"))
+  const service = await startServer({ host: "127.0.0.1", port: 0, packageRoot: process.cwd(), projectDirectory: directory, useVite: false })
+  try {
+    const set = await service.store.createSet({ name: "Annotations", locale: "en-US", device: "iPhone", specId: "iphone", width: 1206, height: 2622 })
+    const area = set.areas[0]
+    await service.store.writeSet(set.id, { ...set, areas: [{ ...area, html: `<style>html,body{margin:0;width:1206px;height:2622px}h1{position:absolute;left:80px;top:100px;width:700px;height:100px;margin:0}</style><h1 id="headline">Explore nearby</h1><script>document.querySelector('h1').textContent='SCRIPT EXECUTED'</script>` }] })
+    const url = `http://127.0.0.1:${service.port}/api/sets/${set.id}/areas/${area.id}/annotation-context`
+    const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ x: 10, y: 5 }) })
+    assert.equal(response.status, 200)
+    const context = await response.json()
+    assert.equal(context.target, "Explore nearby")
+    assert.equal(context.role, "heading")
+    assert.equal(context.selector, "#headline")
+    assert.equal(context.path, "html > body > h1")
+    assert.deepEqual(context.rect, { x: 80, y: 100, width: 700, height: 100 })
+    assert.deepEqual([context.x, context.y, context.width, context.height], [121, 131, 1206, 2622])
+    const invalid = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ x: -1, y: 10 }) })
+    assert.equal(invalid.status, 400)
+    const creative = await service.store.createSet({ name: "Header", locale: "en-US", specId: "header", device: "Header", width: 3840, height: 1646 })
+    assert.equal((await fetch(`http://127.0.0.1:${service.port}/api/sets/${creative.id}/areas/${creative.areas[0].id}/annotation-context`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ x: 10, y: 5 }) })).status, 400)
+  } finally {
+    await service.close()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test("selectable previews expose text to the editor while artwork scripts stay blocked", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "storeshot-selectable-preview-"))
+  const service = await startServer({ host: "127.0.0.1", port: 0, packageRoot: process.cwd(), projectDirectory: directory, useVite: false })
+  let browser: Browser | undefined
+  try {
+    const set = await service.store.createSet({ name: "Selectable", locale: "en-US", device: "iPhone", specId: "iphone", width: 1206, height: 2622 })
+    const area = set.areas[0]
+    await service.store.writeSet(set.id, { ...set, areas: [{ ...area, html: '<h1>Explore nearby</h1><script>parent.document.body.dataset.compromised="script";document.querySelector("h1").textContent="Executed"</script><img src="missing.png" onerror="parent.document.body.dataset.compromised=\'handler\'">' }] })
+    const base = `http://127.0.0.1:${service.port}`
+    browser = await puppeteer.launch({ headless: true, channel: "chrome" })
+    const page = await browser.newPage()
+    // Establish an HTML editor origin before embedding the selectable artwork.
+    await page.goto(`${base}/`)
+    await page.setContent(`<iframe sandbox="allow-same-origin" src="${base}/artboards/sets/${set.id}/${area.id}.html?preview=selectable"></iframe>`)
+    await page.waitForFunction(() => !!document.querySelector("iframe")?.contentDocument?.querySelector("h1"))
+    const result = await page.evaluate(() => {
+      const frame = document.querySelector("iframe")!
+      const artwork = frame.contentDocument!
+      const range = artwork.createRange()
+      range.selectNodeContents(artwork.querySelector("h1")!)
+      const selection = artwork.getSelection()!
+      selection.removeAllRanges()
+      selection.addRange(range)
+      return { selected: selection.toString(), compromised: document.body.dataset.compromised ?? null, sandbox: frame.getAttribute("sandbox") }
+    })
+    assert.deepEqual(result, { selected: "Explore nearby", compromised: null, sandbox: "allow-same-origin" })
+    const exported = await fetch(`${base}/artboards/sets/${set.id}/${area.id}.html`)
+    assert.doesNotMatch(exported.headers.get("content-security-policy") ?? "", /allow-same-origin|allow-scripts/)
+  } finally {
+    await browser?.close()
+    await service.close()
+    await rm(directory, { recursive: true, force: true })
+  }
 })

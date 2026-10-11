@@ -1,3 +1,6 @@
+import { inspectArtworkTarget } from "./annotation-context.js"
+import type { ArtworkAnnotationContext } from "./shared.js"
+import type { Page } from "puppeteer-core"
 import { exportPath } from "./app-store.js"
 import { lstat, mkdir, realpath, rm, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
@@ -39,36 +42,42 @@ export async function createBrowserRenderer(store: ProjectStore, chrome?: string
   const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   let browser: Browser
   try { browser = await launchChrome(chrome) } catch (error) { server.close(); throw error }
+  async function withArtboard<T>(set: ScreenshotSet, area: ScreenshotArea, scale: number, action: (page: Page) => Promise<T>): Promise<T> {
+    if (!Number.isFinite(scale) || scale <= 0 || scale > 1) throw new Error("Render scale must be greater than 0 and at most 1")
+    if (Math.round(set.canvas.width * scale) < 1 || Math.round(set.canvas.height * scale) < 1) throw new Error("Render scale is too small for this artboard")
+    const page = await browser.newPage()
+    const failures = new Set<string>()
+    try {
+      await page.setJavaScriptEnabled(false)
+      await page.setViewport({ width: Math.round(set.canvas.width), height: Math.round(set.canvas.height), deviceScaleFactor: scale })
+      await page.setRequestInterception(true)
+      page.on("request", (request) => {
+        const url = new URL(request.url())
+        if (url.origin === origin && url.pathname === "/favicon.ico") { void request.respond({ status: 204 }); return }
+        const remoteFontResource = ["http:", "https:"].includes(url.protocol) && ["stylesheet", "font"].includes(request.resourceType())
+        if (remoteFontResource || url.protocol === "data:" || (url.origin === origin && url.pathname.startsWith("/artboards/"))) void request.continue()
+        else { failures.add(request.url()); void request.abort() }
+      })
+      page.on("requestfailed", (request) => failures.add(request.url()))
+      page.on("response", (response) => { if (!response.ok()) failures.add(response.url()) })
+      const url = `${origin}/artboards/sets/${set.id}/${area.id}.html`
+      const response = await page.goto(url, { waitUntil: "networkidle0", timeout: 30_000 })
+      if (!response?.ok()) throw new Error(`Could not open artboard ${area.id}`)
+      await page.evaluate(async () => {
+        await document.fonts.ready
+        await Promise.all(Array.from(document.images, (image) => image.decode()))
+      })
+      if (failures.size) throw new Error(`Artboard ${area.name} has missing or blocked resources: ${[...failures].join(", ")}`)
+      // Capture exactly the set viewport, independently of body/document overflow.
+      return await action(page)
+    } finally { await page.close() }
+  }
   return {
-    async render(set: ScreenshotSet, area: ScreenshotArea, scale = 1): Promise<Buffer> {
-      if (!Number.isFinite(scale) || scale <= 0 || scale > 1) throw new Error("Render scale must be greater than 0 and at most 1")
-      if (Math.round(set.canvas.width * scale) < 1 || Math.round(set.canvas.height * scale) < 1) throw new Error("Render scale is too small for this artboard")
-      const page = await browser.newPage()
-      const failures = new Set<string>()
-      try {
-        await page.setJavaScriptEnabled(false)
-        await page.setViewport({ width: Math.round(set.canvas.width), height: Math.round(set.canvas.height), deviceScaleFactor: scale })
-        await page.setRequestInterception(true)
-        page.on("request", (request) => {
-          const url = new URL(request.url())
-          if (url.origin === origin && url.pathname === "/favicon.ico") { void request.respond({ status: 204 }); return }
-          const remoteFontResource = ["http:", "https:"].includes(url.protocol) && ["stylesheet", "font"].includes(request.resourceType())
-          if (remoteFontResource || url.protocol === "data:" || (url.origin === origin && url.pathname.startsWith("/artboards/"))) void request.continue()
-          else { failures.add(request.url()); void request.abort() }
-        })
-        page.on("requestfailed", (request) => failures.add(request.url()))
-        page.on("response", (response) => { if (!response.ok()) failures.add(response.url()) })
-        const url = `${origin}/artboards/sets/${set.id}/${area.id}.html`
-        const response = await page.goto(url, { waitUntil: "networkidle0", timeout: 30_000 })
-        if (!response?.ok()) throw new Error(`Could not open artboard ${area.id}`)
-        await page.evaluate(async () => {
-          await document.fonts.ready
-          await Promise.all(Array.from(document.images, (image) => image.decode()))
-        })
-        if (failures.size) throw new Error(`Artboard ${area.name} has missing or blocked resources: ${[...failures].join(", ")}`)
-        // Capture exactly the set viewport, independently of body/document overflow.
-        return Buffer.from(await page.screenshot({ type: "png", fullPage: false }))
-      } finally { await page.close() }
+    render(set: ScreenshotSet, area: ScreenshotArea, scale = 1): Promise<Buffer> {
+      return withArtboard(set, area, scale, async page => Buffer.from(await page.screenshot({ type: "png", fullPage: false })))
+    },
+    annotationContext(set: ScreenshotSet, area: ScreenshotArea, point: { x: number; y: number }): Promise<ArtworkAnnotationContext> {
+      return withArtboard(set, area, 1, page => page.evaluate(inspectArtworkTarget, point))
     },
     async close() {
       try { await browser.close() } finally {

@@ -2,7 +2,7 @@ import { lstat, readFile, realpath } from "node:fs/promises"
 import path from "node:path"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { ProjectStore } from "./project-store.js"
-import { ARTBOARD_CSP } from "./html-artboard.js"
+import { ARTBOARD_CSP, SELECTABLE_ARTBOARD_CSP } from "./html-artboard.js"
 
 const types: Record<string, string> = {
   ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
@@ -41,7 +41,8 @@ export async function serveArtboardResource(request: IncomingMessage, response: 
     const { body, type } = await readArtboardResource(root, decodeURIComponent(url.pathname.slice("/artboards/".length)))
     response.writeHead(200, {
       "Content-Type": type, "Content-Length": body.length, "Cache-Control": "no-store",
-      "Content-Security-Policy": ARTBOARD_CSP, "X-Content-Type-Options": "nosniff",
+      "Content-Security-Policy": type.startsWith("text/html") && url.searchParams.get("preview") === "selectable"
+        ? SELECTABLE_ARTBOARD_CSP : ARTBOARD_CSP, "X-Content-Type-Options": "nosniff",
       // Sandboxed frames have an opaque origin. Font and CSS-mask loading needs CORS.
       "Access-Control-Allow-Origin": "*",
     }).end(body)

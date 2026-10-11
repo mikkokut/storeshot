@@ -1,4 +1,4 @@
-import { readinessIssues, ASSET_SPECS } from "./app-store.js"
+import { readinessIssues, ASSET_SPECS, assetSpec } from "./app-store.js"
 import type { CreatePageInput, LocalizePageInput } from "./shared.js"
 import { createReadStream, watch, type FSWatcher } from "node:fs"
 import { readFile, stat } from "node:fs/promises"
@@ -104,6 +104,18 @@ async function handleApiRequest(
 ): Promise<boolean> {
   const url = new URL(request.url ?? "/", "http://localhost")
 
+  const annotationMatch = url.pathname.match(/^\/api\/sets\/([^/]+)\/areas\/([^/]+)\/annotation-context$/)
+  if (request.method === "POST" && annotationMatch) {
+    const body = await readJsonBody(request) as Record<string, unknown> | null
+    if (!body || typeof body.x !== "number" || typeof body.y !== "number" || !Number.isFinite(body.x) || !Number.isFinite(body.y) || body.x < 0 || body.x > 100 || body.y < 0 || body.y > 100) throw new HttpError(400, "Annotation point must be between 0 and 100 percent")
+    const set = await store.readSet(decodeURIComponent(annotationMatch[1]))
+    if (assetSpec(set.specId)?.kind !== "screenshots") throw new HttpError(400, "Only screenshots can be annotated")
+    const area = set.areas.find(area => area.id === decodeURIComponent(annotationMatch[2]))
+    if (!area) throw new HttpError(404, "Artboard not found")
+    const renderer = await getRenderer()
+    sendJson(response, 200, await renderer.annotationContext(set, area, { x: body.x, y: body.y }))
+    return true
+  }
   const pngMatch = url.pathname.match(/^\/api\/sets\/([^/]+)\/areas\/([^/]+)\/png$/)
   if (request.method === "POST" && pngMatch) {
     const set = await store.readSet(decodeURIComponent(pngMatch[1]))

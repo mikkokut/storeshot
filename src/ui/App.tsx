@@ -16,7 +16,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable"
-import { ArtworkViewer } from "@/ArtworkViewer"
+import { AnnotationProvider, AnnotationSidebar } from "@/PromptAnnotations"
 import { PageHeader } from "@/PageHeader"
 import { PageDialog } from "@/WorkspaceDialogs"
 import { appStoreLocale } from "@/app-store-locales"
@@ -136,6 +136,7 @@ export function App() {
     </Button>
   )
   return (
+    <AnnotationProvider key={project.directory} project={project}>
     <div className="flex h-dvh overflow-hidden bg-background">
       <ResizablePanelGroup orientation="horizontal">
         <ResizablePanel
@@ -186,6 +187,7 @@ export function App() {
                 )}
               </div>
             </nav>
+            <AnnotationSidebar />
           </aside>
         </ResizablePanel>
         <ResizableHandle aria-label="Resize navigation" />
@@ -213,17 +215,11 @@ export function App() {
                 />
               </Suspense>
             )}
-            {page && collection && (
-              <ArtworkViewer
-                key={collection.id}
-                set={collection}
-                onClose={() => navigate(`/pages/${page.id}`)}
-              />
-            )}
           </main>
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>
+    </AnnotationProvider>
   )
 }
 function Loading() {
