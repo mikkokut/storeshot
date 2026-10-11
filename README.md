@@ -9,8 +9,7 @@ preview. When it's ready, export PNGs at the sizes Apple accepts.
 
 It's free, open source, and runs entirely on your machine.
 
-> **Pre-release:** StoreShot is changing quickly. It supports the Apple App Store
-> today; Google Play support is planned.
+StoreShot supports the Apple App Store today; Google Play support is planned.
 
 StoreShot is already used in production for the iOS app
 [Lokimaps](https://www.lokimaps.com/).

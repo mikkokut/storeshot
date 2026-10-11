@@ -5,8 +5,8 @@ manage versions, `CHANGELOG.md`, Git tags, and GitHub Releases. The same GitHub
 Actions workflow publishes completed releases to npm through trusted publishing
 (OIDC), so the repository does not need an `NPM_TOKEN` secret.
 
-Release candidates publish to npm's `next` channel.
-Stable releases publish to `latest`. Both use the same release PR and publishing
+Stable releases are the default and publish to npm's `latest` channel.
+Optional release candidates publish to `next`. Both use the same release PR and publishing
 workflow; merging a feature PR prepares a release, while merging the generated
 release PR publishes it.
 
@@ -86,7 +86,14 @@ that option is available.
 
 ## Release candidates
 
-These fields in `release-please-config.json` enable the RC cycle:
+The current configuration sets `"prerelease": false`, so the next release has
+no RC suffix and its GitHub Release is stable. It retains the `prerelease`
+versioning strategy through this transition so an existing RC can be promoted
+without incrementing its base version again. After that stable release succeeds,
+remove `versioning`, `prerelease`, and `prerelease-type` to restore the default
+versioning strategy for future releases.
+
+To opt into another RC cycle, use these fields in `release-please-config.json`:
 
 ```json
 "versioning": "prerelease",
