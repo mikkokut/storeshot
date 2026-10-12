@@ -97,6 +97,7 @@
 
       .eyebrow {
         display: inline-flex;
+        gap: 0.3em;
         margin: 0 0 26px;
         padding: 6px 12px;
         border: 1px solid #e5e5e5;
@@ -604,6 +605,32 @@
           padding: 72px 0 28px;
         }
 
+        .eyebrow {
+          padding: 0;
+          border: 0;
+          flex-direction: column;
+          align-items: center;
+          gap: 10px;
+          line-height: 1.5;
+        }
+
+        .eyebrow-label {
+          padding: 5px 12px;
+          border: 1px solid #e5e5e5;
+          border-radius: 999px;
+          white-space: nowrap;
+        }
+
+        .eyebrow-separator {
+          display: none;
+        }
+
+        .eyebrow-detail {
+          max-width: 260px;
+          text-wrap: balance;
+          font-weight: 400;
+        }
+
         h1 {
           font-size: clamp(2.7rem, 12vw, 4.5rem);
         }
@@ -708,7 +735,11 @@
 
     <main id="top">
       <section class="hero shell">
-        <p class="eyebrow">Free and open source · Works with Codex, Claude Code, and other agents</p>
+        <p class="eyebrow">
+          <span class="eyebrow-label">Free and open source</span>
+          <span class="eyebrow-separator" aria-hidden="true">·</span>
+          <span class="eyebrow-detail">Works with Codex, Claude&nbsp;Code, and other agents</span>
+        </p>
         <h1>Let your coding agent make your <span>App Store screenshots.</span></h1>
         <p class="lede">
           Describe what you want and share your app captures. Your agent builds the
