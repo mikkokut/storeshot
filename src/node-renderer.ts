@@ -42,6 +42,16 @@ export async function createBrowserRenderer(store: ProjectStore, chrome?: string
   const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   let browser: Browser
   try { browser = await launchChrome(chrome) } catch (error) { server.close(); throw error }
+  let pending: Promise<void> = Promise.resolve()
+  let closing = false
+  // Keep one artboard active at a time: background tabs can stall screenshot
+  // capture on Linux, and a large export should not open every page at once.
+  function enqueue<T>(action: () => Promise<T>): Promise<T> {
+    if (closing) return Promise.reject(new Error("Artwork renderer is closing"))
+    const result = pending.then(action)
+    pending = result.then(() => undefined, () => undefined)
+    return result
+  }
   async function withArtboard<T>(set: ScreenshotSet, area: ScreenshotArea, scale: number, action: (page: Page) => Promise<T>): Promise<T> {
     if (!Number.isFinite(scale) || scale <= 0 || scale > 1) throw new Error("Render scale must be greater than 0 and at most 1")
     if (Math.round(set.canvas.width * scale) < 1 || Math.round(set.canvas.height * scale) < 1) throw new Error("Render scale is too small for this artboard")
@@ -74,12 +84,14 @@ export async function createBrowserRenderer(store: ProjectStore, chrome?: string
   }
   return {
     render(set: ScreenshotSet, area: ScreenshotArea, scale = 1): Promise<Buffer> {
-      return withArtboard(set, area, scale, async page => Buffer.from(await page.screenshot({ type: "png", fullPage: false })))
+      return enqueue(() => withArtboard(set, area, scale, async page => Buffer.from(await page.screenshot({ type: "png", fullPage: false }))))
     },
     annotationContext(set: ScreenshotSet, area: ScreenshotArea, point: { x: number; y: number }): Promise<ArtworkAnnotationContext> {
-      return withArtboard(set, area, 1, page => page.evaluate(inspectArtworkTarget, point))
+      return enqueue(() => withArtboard(set, area, 1, page => page.evaluate(inspectArtworkTarget, point)))
     },
     async close() {
+      closing = true
+      await pending
       try { await browser.close() } finally {
         server.closeAllConnections()
         await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))

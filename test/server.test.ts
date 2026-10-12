@@ -37,7 +37,9 @@ test("PNG requests share Chrome across languages and concurrent exports, recover
     const baselinePages = (await browser!.pages()).length
     const htmlPath = path.join(service.store.setsPath, sets[0].id, `${sets[0].areas[0].id}.html`)
     await writeFile(htmlPath, '<img src="../../assets/brand/missing.png">')
-    assert.equal((await png(sets[0])).status, 400)
+    const afterFailure = await Promise.all(sets.map(png))
+    assert.equal(afterFailure[0].status, 400)
+    assert.equal(afterFailure[1].status, 200, "A failed artboard must release the render queue")
     await writeFile(htmlPath, sets[0].areas[0].html)
     assert.equal((await png(sets[0])).status, 200)
     assert.equal((await browser!.pages()).length, baselinePages)
