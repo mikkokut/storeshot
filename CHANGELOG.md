@@ -4,6 +4,19 @@ All notable changes to StoreShot will be documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versioning
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0](https://github.com/mikkokut/storeshot/compare/v0.3.0...v0.4.0) (2026-10-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* Projects now require version 2 configuration and version 3 collection manifests. Run storeshot migrate before opening existing projects. Artwork is edited as HTML/CSS; PNG rendering requires Chrome or Chromium.
+
+### Features
+
+* **cli:** start new artboards with a blank canvas and minimal CSS ([6c3d4a0](https://github.com/mikkokut/storeshot/commit/6c3d4a0063ba25ac2dc8e25eb94cf70de15cb272))
+* **preview:** add zoom controls and center the selected screenshot ([6c3d4a0](https://github.com/mikkokut/storeshot/commit/6c3d4a0063ba25ac2dc8e25eb94cf70de15cb272))
+* rebuild StoreShot around HTML/CSS App Store artwork ([#5](https://github.com/mikkokut/storeshot/issues/5)) ([6c3d4a0](https://github.com/mikkokut/storeshot/commit/6c3d4a0063ba25ac2dc8e25eb94cf70de15cb272))
+
 ## [0.3.0](https://github.com/mikkokut/storeshot/compare/v0.2.0...v0.3.0) (2026-07-25)
 
 
