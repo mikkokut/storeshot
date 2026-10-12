@@ -18,7 +18,8 @@ StoreShot includes Apple device frame assets and screen geometry from
 (c) 2026 9OneFour, under the MIT License.
 
 The source revision, attribution, and complete license are retained in
-`src/ui/public/mockup-bundles/frameup-free/` and shipped with the browser UI.
+`catalog/catalog.json`, `catalog/files/frameup-free/`, and
+`catalog/licenses/frameup-free.txt`, and shipped with the CLI.
 
 ### Tabler Icons artwork
 
@@ -27,7 +28,8 @@ StoreShot includes selected vector artwork from
 Paweł Kuna, under the MIT License.
 
 The selected source files, upstream revision, attribution, and complete license
-are retained in `src/ui/public/artwork/tabler/` and shipped with the browser UI.
+are retained in `catalog/catalog.json`, `catalog/files/tabler/`, and
+`catalog/licenses/tabler.txt`, and shipped with the CLI.
 
 ### CC0 laurel artwork
 
@@ -43,31 +45,30 @@ domain under CC0 1.0:
   by Leki, based on work by Indolences; also used for StoreShot's wide pair
 
 The source links, authorship, and complete CC0 1.0 legal text are retained in
-`src/ui/public/artwork/cc0-laurels/` and shipped with the browser UI.
+`catalog/catalog.json`, `catalog/files/cc0-laurels/`, and
+`catalog/licenses/cc0-laurels.txt`, and shipped with the CLI.
 
 ### Geist
 
 StoreShot self-hosts the Geist variable font through
-[`@fontsource-variable/geist`](https://fontsource.org/fonts/geist) in the UI and
-the official [Geist font repository](https://github.com/vercel/geist-font) in
-the CLI renderer. Geist is Copyright 2024 The Geist Project Authors and licensed
+[`@fontsource-variable/geist`](https://fontsource.org/fonts/geist) in the UI.
+Geist is Copyright 2024
+The Geist Project Authors and licensed
 under the SIL Open Font License 1.1.
 
 The complete OFL text is shipped at
 `src/ui/public/licenses/geist-OFL-1.1.txt`.
 
-### node-canvas
+### Puppeteer
 
-CLI PNG rendering uses
-[`canvas`](https://github.com/Automattic/node-canvas), Copyright (c) 2010
-LearnBoost and contributors and Copyright (c) 2014 Automattic, Inc and
-contributors, under the MIT License. The upstream license text is reproduced in
-`THIRD_PARTY_LICENSES.txt`.
+Headless Chrome rendering uses [`puppeteer-core`](https://github.com/puppeteer/puppeteer)
+under Apache-2.0. Its upstream license is retained in
+`third_party/puppeteer-LICENSE` and reproduced in `THIRD_PARTY_LICENSES.txt`.
+Chrome is installed separately and is not redistributed by StoreShot.
 
 ## Hosted fonts
 
-The editor can fetch a font catalog and selected font files from
-[Bunny Fonts](https://fonts.bunny.net/) at runtime. These fonts are not included
+Artboards can link to hosted fonts. Previews and exports fetch linked fonts at render time. These fonts are not included
 in the StoreShot source or npm package. Each family retains its own license;
 users should review the family page before redistributing font files or using a
 font where attribution is required.
@@ -77,22 +78,20 @@ font where attribution is required.
 Versions are pinned by `package-lock.json`. Links below point to the package or
 upstream project where its license and authorship information are maintained.
 
-### Runtime and distributed UI
+### CLI runtime
+
+| Package | License |
+| --- | --- |
+| [`commander`](https://www.npmjs.com/package/commander) | MIT |
+| [`puppeteer-core`](https://www.npmjs.com/package/puppeteer-core) | Apache-2.0 |
+| [`open`](https://www.npmjs.com/package/open) | MIT |
+
+### Build and bundled frontend
 
 | Package | License |
 | --- | --- |
 | [`@base-ui/react`](https://www.npmjs.com/package/@base-ui/react) | MIT |
 | [`@fontsource-variable/geist`](https://www.npmjs.com/package/@fontsource-variable/geist) | OFL-1.1 |
-| [`commander`](https://www.npmjs.com/package/commander) | MIT |
-| [`fabric`](https://www.npmjs.com/package/fabric) | MIT |
-| [`open`](https://www.npmjs.com/package/open) | MIT |
-| [`react-resizable-panels`](https://www.npmjs.com/package/react-resizable-panels) | MIT |
-| [`tw-animate-css`](https://www.npmjs.com/package/tw-animate-css) | MIT |
-
-### Build and frontend source
-
-| Package | License |
-| --- | --- |
 | [`@tailwindcss/vite`](https://www.npmjs.com/package/@tailwindcss/vite) | MIT |
 | [`@types/node`](https://www.npmjs.com/package/@types/node) | MIT |
 | [`@types/react`](https://www.npmjs.com/package/@types/react) | MIT |
@@ -103,16 +102,18 @@ upstream project where its license and authorship information are maintained.
 | [`lucide-react`](https://www.npmjs.com/package/lucide-react) | ISC |
 | [`react`](https://www.npmjs.com/package/react) | MIT |
 | [`react-dom`](https://www.npmjs.com/package/react-dom) | MIT |
+| [`react-resizable-panels`](https://www.npmjs.com/package/react-resizable-panels) | MIT |
 | [`shadcn`](https://www.npmjs.com/package/shadcn) | MIT |
 | [`tailwind-merge`](https://www.npmjs.com/package/tailwind-merge) | MIT |
 | [`tailwindcss`](https://www.npmjs.com/package/tailwindcss) | MIT |
 | [`tsup`](https://www.npmjs.com/package/tsup) | MIT |
 | [`tsx`](https://www.npmjs.com/package/tsx) | MIT |
+| [`tw-animate-css`](https://www.npmjs.com/package/tw-animate-css) | MIT |
 | [`typescript`](https://www.npmjs.com/package/typescript) | Apache-2.0 |
 | [`vite`](https://www.npmjs.com/package/vite) | MIT |
 
 ## User-provided content
 
 StoreShot's license does not grant rights to screenshots, fonts, artwork, or
-mockup bundles imported by a user. Project owners are responsible for ensuring
+device frames imported by a user. Project owners are responsible for ensuring
 they have permission to use and distribute their own content.

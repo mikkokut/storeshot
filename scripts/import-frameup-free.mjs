@@ -1,10 +1,10 @@
 import { execFileSync } from "node:child_process"
-import { copyFile, mkdir, writeFile } from "node:fs/promises"
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 
 const sourceRoot = path.resolve(process.argv[2] ?? "/private/tmp/frameup-free")
-const outputRoot = path.resolve("src/ui/public/mockup-bundles/frameup-free")
+const outputRoot = path.resolve("catalog")
 const deviceModule = await import(pathToFileURL(path.join(sourceRoot, "src/lib/devices.ts")).href)
 const revision = execFileSync("git", ["-C", sourceRoot, "rev-parse", "HEAD"], { encoding: "utf8" }).trim()
 
@@ -12,7 +12,7 @@ const appleDevices = deviceModule.devices.filter((device) => (
   /^(iphone|ipad|macbook|imac|pro-display|thunderbolt)/.test(device.id)
 ))
 
-await mkdir(path.join(outputRoot, "assets"), { recursive: true })
+await mkdir(path.join(outputRoot, "files/frameup-free"), { recursive: true })
 
 const copiedAssets = new Set()
 const mockups = []
@@ -23,21 +23,21 @@ for (const device of appleDevices) {
     copiedAssets.add(assetName)
     await copyFile(
       path.join(sourceRoot, "public", sourceAsset),
-      path.join(outputRoot, "assets", assetName),
+      path.join(outputRoot, "files/frameup-free", assetName),
     )
   }
 
   const groupId = deviceGroupId(device)
   const groupName = productName(groupId)
   mockups.push({
-    id: device.id,
-    groupId,
-    groupName,
+    id: `frameup-free-${device.id}`,
+    kind: "mockup",
+    tags: [groupId, groupName],
     name: device.name,
     description: mockupDescription(device, groupName),
     platform: platformFor(device.category),
     style: "standard",
-    frame: `assets/${assetName}`,
+    file: `files/frameup-free/${assetName}`,
     width: device.width,
     height: device.height,
     screen: {
@@ -51,42 +51,18 @@ for (const device of appleDevices) {
   })
 }
 
-const manifest = {
-  format: "storeshot-mockup-bundle",
-  version: 1,
-  id: "frameup-free",
-  name: "FrameUp Free",
+const catalogPath = path.join(outputRoot, "catalog.json")
+const catalog = JSON.parse(await readFile(catalogPath, "utf8"))
+const entries = mockups.map(asset => ({
+  ...asset,
   author: "9OneFour",
-  license: {
-    name: "MIT",
-    url: "https://github.com/amirmun99/FrameUp-Free/blob/main/LICENSE",
-    file: "LICENSE",
-  },
-  source: {
-    name: "amirmun99/FrameUp-Free",
-    url: "https://github.com/amirmun99/FrameUp-Free",
-    revision,
-  },
-  mockups,
-}
-
-await Promise.all([
-  writeFile(path.join(outputRoot, "storeshot-mockups.json"), `${JSON.stringify(manifest, null, 2)}\n`),
-  copyFile(path.join(sourceRoot, "LICENSE"), path.join(outputRoot, "LICENSE")),
-  writeFile(path.join(outputRoot, "README.md"), `# FrameUp Free mockup bundle
-
-Apple device frame assets and screen geometry imported from
-[amirmun99/FrameUp-Free](https://github.com/amirmun99/FrameUp-Free) at revision
-\`${revision}\`.
-
-FrameUp Free is Copyright (c) 2026 9OneFour and is distributed under the MIT
-License. The complete license is included in [LICENSE](./LICENSE).
-
-The bundle uses StoreShot's portable folder format. Its
-\`storeshot-mockups.json\` manifest contains the frame path and exact rectangular
-screen geometry for every mockup.
-`),
-])
+  license: { name: "MIT", url: "https://github.com/amirmun99/FrameUp-Free/blob/main/LICENSE", file: "licenses/frameup-free.txt" },
+  source: { name: "amirmun99/FrameUp-Free", url: "https://github.com/amirmun99/FrameUp-Free", revision },
+}))
+catalog.assets = [...catalog.assets.filter(asset => !asset.id.startsWith("frameup-free-")), ...entries]
+await mkdir(path.join(outputRoot, "licenses"), { recursive: true })
+await copyFile(path.join(sourceRoot, "LICENSE"), path.join(outputRoot, "licenses/frameup-free.txt"))
+await writeFile(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`)
 
 console.log(`Imported ${mockups.length} Apple mockups and ${copiedAssets.size} assets from FrameUp Free.`)
 

@@ -35,6 +35,7 @@ export function detectScreenshotDeviceType(width: number, height: number): Detec
   const ratio = longSide / shortSide
   const dimensions = `${shortSide}x${longSide}`
 
+  if (dimensions === "1398x2034" || dimensions === "2007x2853") return "iphone"
   if (WATCH_SCREENSHOT_DIMENSIONS.has(dimensions)) return "watch"
   if (IPAD_SCREENSHOT_DIMENSIONS.has(dimensions)) return "ipad"
   if (IPHONE_SCREENSHOT_DIMENSIONS.has(dimensions) && (height > width || longSide >= 2_200)) return "iphone"
@@ -48,13 +49,13 @@ export function detectScreenshotDeviceType(width: number, height: number): Detec
 
 const IPHONE_SCREENSHOT_DIMENSIONS = new Set([
   "640x1136", "750x1334", "828x1792", "1080x1920", "1125x2436", "1170x2532",
-  "1179x2556", "1206x2622", "1242x2208", "1242x2688", "1284x2778", "1290x2796", "1320x2868",
+  "1179x2556", "1206x2622", "1242x2208", "1242x2688", "1284x2778", "1290x2796", "1320x2868", "1260x2736",
 ])
 const IPAD_SCREENSHOT_DIMENSIONS = new Set([
-  "1536x2048", "1668x2224", "1668x2388", "2048x2732", "2064x2752",
+  "1536x2048", "1668x2224", "1668x2388", "2048x2732", "2064x2752", "1668x2420", "1640x2360", "1488x2266",
 ])
 const WATCH_SCREENSHOT_DIMENSIONS = new Set([
-  "368x448", "396x484", "416x496", "422x514",
+  "368x448", "396x484", "416x496", "422x514", "410x502", "312x390",
 ])
 
 function readPngMetadata(contents: Buffer): ImageMetadata | undefined {

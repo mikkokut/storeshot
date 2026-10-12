@@ -13,9 +13,8 @@ const distributedPackages = [
   "@fontsource-variable/geist",
   "class-variance-authority",
   "clsx",
-  "canvas",
   "commander",
-  "fabric",
+  "puppeteer-core",
   "lucide-react",
   "open",
   "react",
@@ -46,12 +45,8 @@ const reviewedLicenseExpressions = new Set([
   "Python-2.0",
 ])
 
-// canvas 3.x declares MIT in package.json, but its npm `files` allowlist omits
-// the upstream LICENSE. Keep a reviewed verbatim copy in the repository so the
-// direct native rendering dependency remains covered by the generated notice.
-const licenseFileOverrides = new Map([
-  ["canvas", ["third_party/node-canvas-LICENSE"]],
-])
+// puppeteer-core omits the upstream Apache-2.0 license from its npm files.
+const licenseFileOverrides = new Map([["puppeteer-core", ["third_party/puppeteer-LICENSE"]]])
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"))
@@ -108,9 +103,10 @@ function validateDependencyLicenses() {
   }
 
   const requiredAssetLicenses = [
-    "src/ui/public/artwork/tabler/LICENSE",
+    "catalog/licenses/tabler.txt",
+    "catalog/licenses/cc0-laurels.txt",
     "src/ui/public/licenses/geist-OFL-1.1.txt",
-    "src/ui/public/mockup-bundles/frameup-free/LICENSE",
+    "catalog/licenses/frameup-free.txt",
   ]
   const missingAssetLicenses = requiredAssetLicenses.filter(
     (filePath) => !fs.existsSync(path.join(repositoryRoot, filePath)),

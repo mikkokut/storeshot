@@ -1,3 +1,5 @@
+import { readinessIssues, ASSET_SPECS, assetSpec } from "./app-store.js"
+import type { CreatePageInput, LocalizePageInput } from "./shared.js"
 import { createReadStream, watch, type FSWatcher } from "node:fs"
 import { readFile, stat } from "node:fs/promises"
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
@@ -6,8 +8,10 @@ import path from "node:path"
 
 import type { ViteDevServer } from "vite"
 
+import { serveArtboardResource } from "./artboard-files.js"
 import { DuplicateAssetError, ProjectStore } from "./project-store.js"
-import type { StoreShotConfig, AssetCategory, CreateSetInput, ScreenshotSet, UpdateAssetMetadataInput, UpdateSetMetadataInput } from "./shared.js"
+import { createBrowserRenderer } from "./node-renderer.js"
+import type { AssetCategory, CreateSetInput, ScreenshotSet, UpdateAssetMetadataInput, UpdateSetMetadataInput } from "./shared.js"
 
 const MAX_REQUEST_BYTES = 25 * 1024 * 1024
 
@@ -22,22 +26,26 @@ interface StartServerOptions {
 export async function startServer(options: StartServerOptions) {
   const store = new ProjectStore(options.projectDirectory)
   await store.initialize()
+  await store.readConfig()
   const projectEvents = new ProjectEventHub(store.root)
 
   let vite: ViteDevServer | undefined
-  if (options.useVite) {
-    const { createServer: createViteServer } = await import("vite")
-    vite = await createViteServer({
-      configFile: path.join(options.packageRoot, "vite.config.ts"),
-      server: { middlewareMode: true },
-      appType: "spa",
+  // Share one lazy Chrome launch across sequential and concurrent PNG requests.
+  let renderer: ReturnType<typeof createBrowserRenderer> | undefined
+  const getRenderer = () => {
+    renderer ??= createBrowserRenderer(store).catch((error: unknown) => {
+      renderer = undefined
+      throw error
     })
+    return renderer
   }
 
   const server = createServer(async (request, response) => {
     try {
       if ((request.url ?? "").startsWith("/api/")) assertAllowedBrowserRequest(request, options.host)
-      if (await handleApiRequest(request, response, store, projectEvents)) return
+      if ((request.url ?? "").startsWith("/artboards/")) assertAllowedBrowserRequest(request, options.host, true)
+      if (await serveArtboardResource(request, response, store.root)) return
+      if (await handleApiRequest(request, response, store, projectEvents, getRenderer)) return
       if (vite) {
         vite.middlewares(request, response)
         return
@@ -51,20 +59,38 @@ export async function startServer(options: StartServerOptions) {
     }
   })
 
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject)
-    server.listen(options.port, options.host, resolve)
-  })
+  try {
+    if (options.useVite) {
+      const { createServer: createViteServer } = await import("vite")
+      vite = await createViteServer({
+        configFile: path.join(options.packageRoot, "vite.config.ts"),
+        server: { middlewareMode: true, hmr: { server } },
+        appType: "spa",
+      })
+    }
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject)
+      server.listen(options.port, options.host, resolve)
+    })
+  } catch (error) {
+    projectEvents.close()
+    await vite?.close()
+    throw error
+  }
 
   return {
     store,
     port: (server.address() as AddressInfo).port,
     close: async () => {
       projectEvents.close()
-      await vite?.close()
-      await new Promise<void>((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()))
-      })
+      try {
+        await vite?.close()
+        await new Promise<void>((resolve, reject) => {
+          server.close((error) => (error ? reject(error) : resolve()))
+        })
+      } finally {
+        if (renderer) await (await renderer).close()
+      }
     },
   }
 }
@@ -74,8 +100,39 @@ async function handleApiRequest(
   response: ServerResponse,
   store: ProjectStore,
   projectEvents: ProjectEventHub,
+  getRenderer: () => ReturnType<typeof createBrowserRenderer>,
 ): Promise<boolean> {
   const url = new URL(request.url ?? "/", "http://localhost")
+
+  const annotationMatch = url.pathname.match(/^\/api\/sets\/([^/]+)\/areas\/([^/]+)\/annotation-context$/)
+  if (request.method === "POST" && annotationMatch) {
+    const body = await readJsonBody(request) as Record<string, unknown> | null
+    if (!body || typeof body.x !== "number" || typeof body.y !== "number" || !Number.isFinite(body.x) || !Number.isFinite(body.y) || body.x < 0 || body.x > 100 || body.y < 0 || body.y > 100) throw new HttpError(400, "Annotation point must be between 0 and 100 percent")
+    const set = await store.readSet(decodeURIComponent(annotationMatch[1]))
+    if (assetSpec(set.specId)?.kind !== "screenshots") throw new HttpError(400, "Only screenshots can be annotated")
+    const area = set.areas.find(area => area.id === decodeURIComponent(annotationMatch[2]))
+    if (!area) throw new HttpError(404, "Artboard not found")
+    const renderer = await getRenderer()
+    sendJson(response, 200, await renderer.annotationContext(set, area, { x: body.x, y: body.y }))
+    return true
+  }
+  const pngMatch = url.pathname.match(/^\/api\/sets\/([^/]+)\/areas\/([^/]+)\/png$/)
+  if (request.method === "POST" && pngMatch) {
+    const set = await store.readSet(decodeURIComponent(pngMatch[1]))
+    const area = set.areas.find((area) => area.id === decodeURIComponent(pngMatch[2]))
+    if (!area) throw new HttpError(404, "Artboard not found")
+    const renderer = await getRenderer()
+    const png = await renderer.render(set, area)
+    response.writeHead(200, { "Content-Type": "image/png", "Content-Length": png.length }).end(png)
+    return true
+  }
+  const newAreaMatch = url.pathname.match(/^\/api\/sets\/([^/]+)\/areas$/)
+  if (request.method === "POST" && newAreaMatch) {
+    const id = decodeURIComponent(newAreaMatch[1])
+    const area = await readJsonBody(request)
+    sendJson(response, 200, await store.addArea(id, area))
+    return true
+  }
 
   if (request.method === "GET" && url.pathname === "/api/events") {
     projectEvents.subscribe(request, response)
@@ -87,72 +144,37 @@ async function handleApiRequest(
     return true
   }
 
-  if (request.method === "GET" && url.pathname === "/api/mockup-bundles") {
-    sendJson(response, 200, await store.listMockupCatalog())
+  if (request.method === "GET" && url.pathname === "/api/app-store") {
+    const project = await store.readProject()
+    sendJson(response, 200, { specifications: ASSET_SPECS, issues: readinessIssues(project.config, project.sets) })
     return true
   }
-
-  const mockupBundleImportFileMatch = url.pathname.match(/^\/api\/mockup-bundle-imports\/([^/]+)\/([^/]+)\/files\/(.+)$/)
-  if (request.method === "PUT" && mockupBundleImportFileMatch) {
-    const importId = decodeURIComponent(mockupBundleImportFileMatch[1])
-    const bundleId = decodeURIComponent(mockupBundleImportFileMatch[2])
-    const relativePath = mockupBundleImportFileMatch[3].split("/").map(decodeURIComponent).join("/")
-    await store.writeMockupBundleImportFile(importId, bundleId, relativePath, await readBody(request))
-    response.writeHead(204).end()
+  if (request.method === "POST" && url.pathname === "/api/pages") {
+    const page = await store.createPage(await readJsonBody(request) as CreatePageInput)
+    sendJson(response, 201, { page, project: await store.readProject() })
     return true
   }
-
-  const mockupBundleImportMatch = url.pathname.match(/^\/api\/mockup-bundle-imports\/([^/]+)\/([^/]+)$/)
-  if (request.method === "PUT" && mockupBundleImportMatch) {
-    const importId = decodeURIComponent(mockupBundleImportMatch[1])
-    const bundleId = decodeURIComponent(mockupBundleImportMatch[2])
-    await store.commitMockupBundleImport(importId, bundleId, await readJsonBody(request))
-    sendJson(response, 200, await store.listMockupCatalog())
+  const pageMatch = url.pathname.match(/^\/api\/pages\/([^/]+)$/)
+  if (pageMatch && (request.method === "PATCH" || request.method === "DELETE")) {
+    const pageId = decodeURIComponent(pageMatch[1])
+    if (request.method === "DELETE") await store.deletePage(pageId)
+    else await store.renamePage(pageId, (await readJsonBody(request) as { name: string }).name)
+    sendJson(response, 200, await store.readProject())
     return true
   }
-
-  const mockupBundleImportDiscardMatch = url.pathname.match(/^\/api\/mockup-bundle-imports\/([^/]+)$/)
-  if (request.method === "DELETE" && mockupBundleImportDiscardMatch) {
-    await store.discardMockupBundleImport(decodeURIComponent(mockupBundleImportDiscardMatch[1]))
-    response.writeHead(204).end()
+  const pageLanguage = url.pathname.match(/^\/api\/pages\/([^/]+)\/localizations\/([^/]+)$/)
+  if (request.method === "DELETE" && pageLanguage) {
+    await store.removePageLanguage(decodeURIComponent(pageLanguage[1]), decodeURIComponent(pageLanguage[2]))
+    sendJson(response, 200, await store.readProject())
     return true
   }
-
-  const mockupBundleMatch = url.pathname.match(/^\/api\/mockup-bundles\/([^/]+)$/)
-  if (request.method === "PUT" && mockupBundleMatch) {
-    const bundleId = decodeURIComponent(mockupBundleMatch[1])
-    await store.writeMockupBundleManifest(bundleId, await readJsonBody(request))
-    sendJson(response, 200, await store.listMockupCatalog())
-    return true
-  }
-
-  const mockupBundleFileMatch = url.pathname.match(/^\/api\/mockup-bundle-files\/([^/]+)\/(.+)$/)
-  if (mockupBundleFileMatch) {
-    const bundleId = decodeURIComponent(mockupBundleFileMatch[1])
-    const relativePath = mockupBundleFileMatch[2].split("/").map(decodeURIComponent).join("/")
-    if (request.method === "PUT") {
-      await store.writeMockupBundleFile(bundleId, relativePath, await readBody(request))
-      response.writeHead(204).end()
-      return true
-    }
-    if (request.method === "GET") {
-      const target = await store.resolveExistingMockupBundleFile(bundleId, relativePath)
-      const metadata = await stat(target)
-      response.writeHead(200, {
-        "Content-Type": contentTypeFor(target),
-        "Content-Length": metadata.size,
-        "Cache-Control": "no-store",
-        "X-Content-Type-Options": "nosniff",
-        ...(path.extname(target).toLowerCase() === ".svg" ? { "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox" } : {}),
-      })
-      createReadStream(target).pipe(response)
-      return true
-    }
-  }
-
-  if (request.method === "PATCH" && url.pathname === "/api/config") {
-    const config = await store.writeConfig((await readJsonBody(request)) as StoreShotConfig)
-    sendJson(response, 200, config)
+  const pageAction = url.pathname.match(/^\/api\/pages\/([^/]+)\/(localizations|prepare)$/)
+  if (request.method === "POST" && pageAction) {
+    const pageId = decodeURIComponent(pageAction[1])
+    const input = await readJsonBody(request) as LocalizePageInput
+    if (pageAction[2] === "localizations") await store.localizePage(pageId, input)
+    else await store.preparePage(pageId, input.locale)
+    sendJson(response, 200, await store.readProject())
     return true
   }
 
@@ -298,7 +320,7 @@ class HttpError extends Error {
   }
 }
 
-function assertAllowedBrowserRequest(request: IncomingMessage, configuredHost: string): void {
+function assertAllowedBrowserRequest(request: IncomingMessage, configuredHost: string, artboardResource = false): void {
   const host = request.headers.host
   if (!host) throw new HttpError(400, "A Host header is required")
 
@@ -315,13 +337,14 @@ function assertAllowedBrowserRequest(request: IncomingMessage, configuredHost: s
 
   const origin = request.headers.origin
   if (!origin) return
+  if (artboardResource && origin === "null" && ["image", "font", "style"].includes(String(request.headers["sec-fetch-dest"]))) return
   let originUrl: URL
   try {
     originUrl = new URL(origin)
   } catch {
     throw new HttpError(403, "The request origin is invalid")
   }
-  if ((originUrl.protocol !== "http:" && originUrl.protocol !== "https:") || originUrl.host !== host) {
+  if (originUrl.origin !== hostUrl.origin) {
     throw new HttpError(403, "Cross-origin API requests are not allowed")
   }
 }
@@ -335,7 +358,7 @@ function normalizedHostname(host: string): string {
 }
 
 function isLoopbackHostname(hostname: string): boolean {
-  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]"
 }
 
 function httpFailureFor(error: unknown, request: IncomingMessage): HttpError {
@@ -377,7 +400,7 @@ function contentTypeFor(filename: string): string {
   }
 }
 
-type ProjectChangeScope = "assets" | "config" | "mockups" | "project" | "sets"
+type ProjectChangeScope = "assets" | "config" | "project" | "sets"
 
 class ProjectEventHub {
   private readonly clients = new Set<ServerResponse>()
@@ -438,8 +461,6 @@ function changeScope(relativePath: string): ProjectChangeScope | undefined {
   if (relativePath === "storeshot.json" || relativePath.startsWith(".storeshot.json.")) return "config"
   if (relativePath === "sets" || relativePath.startsWith("sets/")) return "sets"
   if (relativePath === "assets" || relativePath.startsWith("assets/")) return "assets"
-  if (relativePath.startsWith("mockup-bundles/.imports/")) return undefined
-  if (relativePath === "mockup-bundles" || relativePath.startsWith("mockup-bundles/")) return "mockups"
   if (relativePath === "renders" || relativePath.startsWith("renders/")) return undefined
   return "project"
 }

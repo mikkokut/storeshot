@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "pages": [
+    {
+      "id": "examples",
+      "name": "Soft Gradient",
+      "store": "app-store",
+      "localizations": [
+        "en-US"
+      ]
+    }
+  ]
+}

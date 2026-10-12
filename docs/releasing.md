@@ -5,6 +5,11 @@ manage versions, `CHANGELOG.md`, Git tags, and GitHub Releases. The same GitHub
 Actions workflow publishes completed releases to npm through trusted publishing
 (OIDC), so the repository does not need an `NPM_TOKEN` secret.
 
+Stable releases are the default and publish to npm's `latest` channel.
+Optional release candidates publish to `next`. Both use the same release PR and publishing
+workflow; merging a feature PR prepares a release, while merging the generated
+release PR publishes it.
+
 ## One-time GitHub setup
 
 1. Open the repository on GitHub and go to **Settings → Actions → General**.
@@ -63,12 +68,14 @@ per user-facing change.
    - Confirm required CI checks pass.
 
 5. Merge the release pull request. The workflow then creates the matching
-   `vX.Y.Z` tag and GitHub Release, runs the full validation gate, previews the
-   npm package, and publishes it to npm.
+   version tag and GitHub Release, runs the full validation gate, previews the
+   npm package, and publishes it to npm. Versions with a prerelease suffix go to
+   `next`; stable versions go to `latest`.
 6. Confirm the **Release and publish** workflow succeeded, then verify:
 
    ```bash
-   npm view storeshot version
+   npm view storeshot dist-tags --json
+   npm view storeshot@<version> version
    npm install --global storeshot@<version>
    storeshot --version
    ```
@@ -76,6 +83,61 @@ per user-facing change.
 After the first automated publish succeeds, remove obsolete npm automation
 tokens and disallow token-based publishing in the npm package settings when
 that option is available.
+
+## Release candidates
+
+The current configuration sets `"prerelease": false`, so the next release has
+no RC suffix and its GitHub Release is stable. It retains the `prerelease`
+versioning strategy through this transition so an existing RC can be promoted
+without incrementing its base version again. After that stable release succeeds,
+remove `versioning`, `prerelease`, and `prerelease-type` to restore the default
+versioning strategy for future releases.
+
+To opt into another RC cycle, use these fields in `release-please-config.json`:
+
+```json
+"versioning": "prerelease",
+"prerelease": true,
+"prerelease-type": "rc.1"
+```
+
+Release Please derives the base version from Conventional Commits and starts
+its prerelease suffix at `rc.1`. For example, breaking changes after `0.3.0`
+produce `0.4.0-rc.1`. Subsequent release PRs increment the counter, such as
+`0.4.0-rc.2`. GitHub releases are marked as prereleases.
+
+Use the normal release workflow above to publish each candidate. Verify the
+published channels and install the candidate with:
+
+```bash
+npm view storeshot dist-tags --json
+npm install --global storeshot@next
+storeshot --version
+```
+
+Publishing an RC updates `next` and leaves `latest` pointing to the existing
+stable version. An exact RC can also be installed with
+`npm install --global storeshot@0.4.0-rc.1`.
+
+### Promote to stable
+
+1. Change `"prerelease"` to `false` in `release-please-config.json` and merge it
+   into `main` with a releasable commit, such as
+   `fix(release): publish stable releases by default`.
+2. Keep `"versioning": "prerelease"` through this promotion. Release Please
+   removes the prerelease suffix, proposing `0.4.0` after `0.4.0-rc.N` instead
+   of incrementing the base version again.
+3. Review the stable release PR's version, checks, and changelog. Generated
+   notes cover commits since the last RC; update the unreleased entry to
+   summarize the full RC cycle if needed.
+4. Merge the release PR. The workflow publishes the stable version to `latest`.
+5. After the stable release succeeds, remove `versioning`, `prerelease`, and
+   `prerelease-type` to restore the default versioning strategy for future
+   releases.
+
+Publish a version without the RC suffix for the stable release rather than
+moving an RC version to `latest`. Leave package versions, the release manifest,
+and tags to Release Please throughout the cycle.
 
 ## Choosing or correcting a version
 

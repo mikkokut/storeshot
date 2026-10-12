@@ -2,14 +2,51 @@ export const ASSET_CATEGORIES = ["screenshots", "brand", "other"] as const
 
 export type AssetCategory = (typeof ASSET_CATEGORIES)[number]
 
-export const SCREENSHOT_DEVICE_TYPES = ["iphone", "ipad", "mac", "watch"] as const
+export const SCREENSHOT_DEVICE_TYPES = [
+  "iphone",
+  "ipad",
+  "mac",
+  "watch",
+  "tv",
+  "vision",
+] as const
 export type ScreenshotDeviceType = (typeof SCREENSHOT_DEVICE_TYPES)[number]
 export type DetectedScreenshotDeviceType = ScreenshotDeviceType | "unknown"
 
+export const APP_DEVICES = [
+  "iphone",
+  "ipad",
+  "iphone-duo",
+  "watch",
+  "mac",
+  "tv",
+  "vision",
+] as const
+export type AppDevice = (typeof APP_DEVICES)[number]
+
+export type PageStore = "app-store" | "play-store"
+
+export interface ProductPage {
+  id: string
+  name: string
+  store: PageStore
+  localizations: string[]
+}
+
 export interface StoreShotConfig {
-  version: 1
-  appName: string
-  platforms: Array<"ios" | "android">
+  version: 2
+  pages: ProductPage[]
+}
+
+export interface CreatePageInput {
+  name: string
+  store?: PageStore
+  sourcePageId?: string
+}
+
+export interface LocalizePageInput {
+  locale: string
+  sourceLocale?: string
 }
 
 export interface Asset {
@@ -19,13 +56,14 @@ export interface Asset {
   url: string
   size: number
   modifiedAt: string
+  checksum: string
   width?: number
   height?: number
   /** The dimension-based classification before a user override is applied. */
   detectedDeviceType?: DetectedScreenshotDeviceType
   /** An explicit local catalog override. */
   deviceTypeOverride?: ScreenshotDeviceType
-  /** The effective type used for mockup recommendations. */
+  /** The effective type used to group source screenshots and prepare artwork. */
   deviceType?: DetectedScreenshotDeviceType
 }
 
@@ -33,93 +71,9 @@ export interface UpdateAssetMetadataInput {
   deviceType: ScreenshotDeviceType | null
 }
 
-interface CanvasElementBase {
-  id: string
-  x: number
-  y: number
-  width: number
-  height: number
-  rotation: number
-  opacity: number
-  /** Mirrors the layer around its vertical axis. */
-  flipX?: boolean
-  /** Mirrors the layer around its horizontal axis. */
-  flipY?: boolean
-}
-
-export type ImageElementSource =
-  | { kind: "builtin"; id: string }
-  | { kind: "asset"; assetId: string }
-
-/** A project image or built-in vector artwork placed on a screenshot. */
-export interface ImageElement extends CanvasElementBase {
-  type: "image"
-  source: ImageElementSource
-  fit: "contain" | "cover"
-  /** Replaces the visible pixels while preserving their alpha. Omit to use the source colors. */
-  fill?: string
-}
-
-export interface DeviceMockupElement extends CanvasElementBase {
-  type: "mockup"
-  mockupId: string
-  assetId: string
-}
-
-export type FontWeight = 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900
-export const DEFAULT_TEXT_LINE_HEIGHT_RATIO = 1.05
-
-export interface TextElement extends CanvasElementBase {
-  type: "text"
-  text: string
-  fontFamily: string
-  fontSize: number
-  fontWeight: FontWeight
-  /** Absolute line height in canvas pixels. When omitted, the renderer derives it from the font size. */
-  lineHeight?: number
-  color: string
-  textAlign: "left" | "center" | "right"
-}
-
-export interface ShapeElement extends CanvasElementBase {
-  type: "shape"
-  shape: "circle" | "line" | "rectangle"
-  fill: string
-  stroke: string
-  strokeWidth: number
-  cornerRadius: number
-}
-
-export interface GroupElement extends CanvasElementBase {
-  type: "group"
-  children: CanvasElement[]
-}
-
-export type CanvasElement = DeviceMockupElement | GroupElement | ImageElement | ShapeElement | TextElement
-
-export interface ScreenshotArea {
-  id: string
-  name: string
-  background: string
-  elements: CanvasElement[]
-}
-
-export interface ScreenshotSet {
-  version: 1
-  id: string
-  name: string
-  locale: string
-  device: string
-  canvas: {
-    width: number
-    height: number
-  }
-  areas: ScreenshotArea[]
-  createdAt: string
-  updatedAt: string
-}
-
 export interface CreateSetInput {
+  pageId?: string
+  specId?: string
   name: string
   locale: string
   device: string
@@ -128,6 +82,8 @@ export interface CreateSetInput {
 }
 
 export interface UpdateSetMetadataInput {
+  pageId?: string
+  specId?: string
   name: string
   locale: string
   device: string
@@ -138,4 +94,44 @@ export interface StoreShotProject {
   config: StoreShotConfig
   assets: Record<AssetCategory, Asset[]>
   sets: ScreenshotSet[]
+}
+
+/** Metadata and HTML are hydrated from sets/<set-id>/<area-id>[-slug].{json,html}. */
+export interface ScreenshotArea {
+  /** Project-relative artwork filename, hydrated from disk and never persisted. */
+  htmlPath?: string
+  /** Derived for live previews; never persisted in the collection document. */
+  previewRevision?: string
+  id: string
+  name: string
+  html: string
+}
+
+export interface ScreenshotSet {
+  id: string
+  name: string
+  locale: string
+  device: string
+  canvas: { width: number; height: number }
+  createdAt: string
+  updatedAt: string
+  version: 3
+  pageId: string
+  specId: string
+  sourceLocale?: string
+  areas: ScreenshotArea[]
+}
+
+/** Rendered artwork evidence for a clicked annotation target. */
+export interface ArtworkAnnotationContext {
+  x: number
+  y: number
+  width: number
+  height: number
+  target?: string
+  role?: string
+  selector?: string
+  path?: string
+  source?: string
+  rect?: { x: number; y: number; width: number; height: number }
 }
