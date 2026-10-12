@@ -59,7 +59,7 @@ export async function createBrowserRenderer(store: ProjectStore, chrome?: string
         else { failures.add(request.url()); void request.abort() }
       })
       page.on("requestfailed", (request) => failures.add(request.url()))
-      page.on("response", (response) => { if (!response.ok()) failures.add(response.url()) })
+      page.on("response", (response) => { if (response.status() >= 400) failures.add(response.url()) })
       const url = `${origin}/artboards/sets/${set.id}/${area.id}.html`
       const response = await page.goto(url, { waitUntil: "networkidle0", timeout: 30_000 })
       if (!response?.ok()) throw new Error(`Could not open artboard ${area.id}`)
@@ -93,12 +93,15 @@ export async function renderScreenshotSets(options: RenderOptions): Promise<Rend
   if (options.area && options.sets.length !== 1) throw new Error("--area can only be used when rendering one set")
   const selections = options.sets.map((set) => ({ set, areas: selectAreas(set, options.area) }))
   const outputDirectory = path.resolve(options.outputDirectory)
+  const root = await realpath(options.store.root)
+  if (await resolveFuturePath(outputDirectory) === root) {
+    throw new Error("Render output must not overlap project source files")
+  }
   // --clean must never delete the project or its source folders.
   for (const { set } of selections) {
     const target = path.join(outputDirectory, exportPath(set))
-    await assertNoOutputSymlinks(target)
+    await assertNoOutputSymlinks(target, outputDirectory)
     const resolvedTarget = await resolveFuturePath(target)
-    const root = await realpath(options.store.root)
     const relative = path.relative(resolvedTarget, root)
     if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative)) ||
       ["sets", "assets"].some((name) => { const source = path.join(root, name); return resolvedTarget === source || resolvedTarget.startsWith(`${source}${path.sep}`) })) {
@@ -113,12 +116,12 @@ export async function renderScreenshotSets(options: RenderOptions): Promise<Rend
       if (options.clean) await rm(directory, { recursive: true, force: true })
       await mkdir(directory, { recursive: true })
       const manifestPath = path.join(directory, "manifest.json")
-      await assertNoOutputSymlinks(manifestPath)
+      await assertNoOutputSymlinks(manifestPath, outputDirectory)
       await writeFile(manifestPath, JSON.stringify({ pageId: set.pageId, locale: set.locale, specId: set.specId, scale: options.scale, previewOnly: options.scale !== 1 }, null, 2))
       for (const { area, index } of areas) {
         const filename = `${String(index + 1).padStart(2, "0")}-${safeFileNamePart(area.name, `screenshot-${index + 1}`)}.png`
         const target = path.join(directory, filename)
-        await assertNoOutputSymlinks(target)
+        await assertNoOutputSymlinks(target, outputDirectory)
         await writeFile(target, await renderer.render(set, area, options.scale))
         files.push({ areaId: area.id, setId: set.id, path: target, width: Math.max(1, Math.round(set.canvas.width * options.scale)), height: Math.max(1, Math.round(set.canvas.height * options.scale)) })
       }
@@ -145,10 +148,15 @@ async function resolveFuturePath(target: string): Promise<string> {
   }
 }
 
-async function assertNoOutputSymlinks(target: string): Promise<void> {
-  // /tmp and /var are OS-managed aliases on macOS; resolve the output parent,
-  // but still reject a symlink at the actual file/directory being overwritten.
-  try {
-    if ((await lstat(target)).isSymbolicLink()) throw new Error("Render output cannot overwrite symbolic links")
-  } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error }
+async function assertNoOutputSymlinks(target: string, boundary: string): Promise<void> {
+  // Inspect the requested output root and every descendant. Ancestors above it
+  // may include OS-managed aliases such as /tmp and /var on macOS.
+  let current = target
+  while (true) {
+    try {
+      if ((await lstat(current)).isSymbolicLink()) throw new Error("Render output cannot overwrite symbolic links")
+    } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error }
+    if (current === boundary) return
+    current = path.dirname(current)
+  }
 }

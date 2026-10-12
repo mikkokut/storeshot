@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import test from "node:test"
@@ -86,6 +86,7 @@ test("Chrome renders canonical HTML, local CSS and images at the requested size"
     await assert.rejects(renderScreenshotSets({ ...options, scale: 0 }), /scale/)
     await assert.rejects(renderScreenshotSets({ ...options, area: "missing" }), /no area/)
     await assert.rejects(renderScreenshotSets({ ...options, clean: true, outputDirectory: store.setsPath }), /source files/)
+    await assert.rejects(renderScreenshotSets({ ...options, clean: true, outputDirectory: directory }), /source files/)
     await writeFile(path.join(dir, `${set.areas[0].id}-native-html.html`), '<img src="../../assets/brand/missing.png">')
     await assert.rejects(renderScreenshotSets(options), /missing|decode|EncodingError/i)
   } finally { await rm(directory, { recursive: true, force: true }) }
@@ -102,8 +103,12 @@ test("previews and Chrome exports load CSS and fonts from another origin", async
     requests.push(request.url ?? "")
     response.setHeader("Access-Control-Allow-Origin", "*")
     if (request.url === "/style.css") {
+      response.writeHead(302, { Location: "/actual.css" }).end()
+    } else if (request.url === "/actual.css") {
       response.writeHead(200, { "Content-Type": "text/css" }).end('@font-face{font-family:Remote;src:url("/font.woff2")}body{font-family:Remote}')
     } else if (request.url === "/font.woff2" && !missingFont) {
+      response.writeHead(307, { Location: "/actual.woff2" }).end()
+    } else if (request.url === "/actual.woff2" && !missingFont) {
       response.writeHead(200, { "Content-Type": "font/woff2" }).end(font)
     } else response.writeHead(404).end()
   })
@@ -136,4 +141,30 @@ test("previews and Chrome exports load CSS and fonts from another origin", async
     await new Promise<void>((resolve) => remote.close(() => resolve()))
     await rm(directory, { recursive: true, force: true })
   }
+})
+
+test("clean exports reject symlinks at every output level before deleting files", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "storeshot-output-links-"))
+  try {
+    const store = new ProjectStore(path.join(directory, "project"))
+    await store.initialize()
+    const set = await store.createSet({ name: "Safe", locale: "en-US", device: "iPhone", specId: "iphone", width: 1206, height: 2622 })
+    const { exportPath } = await import("../src/app-store.js")
+    const parts = exportPath(set).split("/")
+    const output = path.join(directory, "output")
+    const external = path.join(directory, "external")
+    await mkdir(external)
+    for (let depth = 0; depth <= parts.length; depth++) {
+      const link = path.join(output, ...parts.slice(0, depth))
+      await mkdir(path.dirname(link), { recursive: true })
+      const destination = path.join(external, ...parts.slice(depth))
+      await mkdir(destination, { recursive: true })
+      const sentinel = path.join(destination, "keep.txt")
+      await writeFile(sentinel, "keep")
+      await symlink(external, link, "dir")
+      await assert.rejects(renderScreenshotSets({ store, sets: [set], clean: true, scale: 1, outputDirectory: output }), /symbolic links/)
+      assert.equal(await readFile(sentinel, "utf8"), "keep")
+      await rm(output, { recursive: true, force: true })
+    }
+  } finally { await rm(directory, { recursive: true, force: true }) }
 })
