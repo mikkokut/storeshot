@@ -4,6 +4,13 @@ All notable changes to StoreShot will be documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versioning
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1](https://github.com/mikkokut/storeshot/compare/v0.4.0...v0.4.1) (2026-10-12)
+
+
+### Bug Fixes
+
+* **website:** simplify the hero pill on mobile ([#7](https://github.com/mikkokut/storeshot/issues/7)) ([1a16264](https://github.com/mikkokut/storeshot/commit/1a16264fe0b16457b42fb206991ddf7d71e97dee))
+
 ## [0.4.0](https://github.com/mikkokut/storeshot/compare/v0.3.0...v0.4.0) (2026-10-12)
 
 
