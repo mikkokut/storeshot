@@ -108,7 +108,7 @@ is large.
 ```bash
 storeshot -C DIR asset add ./captures/*.png --category screenshots
 storeshot -C DIR asset add ./brand/logo.svg --category brand
-storeshot -C DIR asset set-device screenshots/home.png ipad   # or iphone|mac|watch|auto
+storeshot -C DIR asset set-device screenshots/home.png ipad   # or iphone|mac|watch|tv|vision|auto
 ```
 
 `asset add` copies files using their basename, rejects names that already

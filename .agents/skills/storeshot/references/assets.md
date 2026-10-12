@@ -30,7 +30,8 @@ storeshot -C DIR asset inspect other/FILENAME.svg --json
   authors, platform, and style. Exact ID, name, or tag matches rank first. Omit
   filters to broaden a search.
 - **Filters:** kinds are `mockup`, `decor`, `lines`, and `laurels`. Platforms
-  are `iphone`, `ipad`, `mac`, and `watch`.
+  are `iphone`, `ipad`, `mac`, `watch`, `tv`, and `vision`. Use an explicit
+  `tv` or `vision` override for their shared 3840 × 2160 capture size.
 - **Checksum lookup:** pass a complete 64-digit SHA-256 hash, optionally
   prefixed with `sha256:`. Partial hashes do not match.
 - **IDs vs paths:** catalog IDs and local asset paths are different inputs. Use

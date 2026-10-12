@@ -57,12 +57,12 @@ test("upcoming Duo slots remain creatable without preparation or missing-counter
       const set = await store.createSet({ specId, name: spec.name, device: spec.name, locale: "en-US", width, height })
       assert.deepEqual(readinessIssues(await store.readConfig(), [set]), [])
     }
-    assert.deepEqual(await store.preparePage(pageId, "en-US"), [])
+    assert.deepEqual((await store.preparePage(pageId, "en-US")).map(set => set.specId), ["iphone"])
     const page = await store.createPage({ name: "Duo draft" })
     const spec = assetSpec("iphone-duo-outer")!
     const [width, height] = creationSize(spec)
     await store.createSet({ pageId: page.id, specId: spec.id, name: spec.name, device: spec.name, locale: "en-US", width, height })
-    assert.deepEqual(await store.preparePage(page.id, "en-US"), [])
+    assert.deepEqual((await store.preparePage(page.id, "en-US")).map(set => set.specId), ["iphone"])
   }))
 test("prepare creates each required slot once, and preserves edited artwork", async () =>
   fixture(async (store, pageId) => {
@@ -558,4 +558,23 @@ test("preparation uses exact TV dimensions and honors screenshot device override
       prepared.find((set) => set.specId === "ipad")!.areas[0].html,
       /custom.svg/,
     )
+  }))
+
+test("Vision overrides disambiguate captures shared with Apple TV", async () =>
+  fixture(async (store, pageId) => {
+    await store.addAsset("screenshots", "vision.svg", Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="3840" height="2160"></svg>'))
+    await store.updateAssetMetadata("screenshots", "vision.svg", { deviceType: "vision" })
+    const prepared = await store.preparePage(pageId, "en-US")
+    assert.deepEqual(prepared.map(set => set.specId), ["vision"])
+    assert.match(prepared[0].areas[0].html, /vision.svg/)
+    await store.updateAssetMetadata("screenshots", "vision.svg", { deviceType: "tv" })
+    const other = await store.createPage({ name: "TV" })
+    const tv = await store.preparePage(other.id, "en-US")
+    assert.ok(tv.some(set => set.specId === "tv" && /vision.svg/.test(set.areas[0].html)))
+  }))
+
+test("a Duo-only source still prepares the default required iPhone destination", async () =>
+  fixture(async (store, pageId) => {
+    await store.addAsset("screenshots", "duo.svg", Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="1398" height="2034"></svg>'))
+    assert.deepEqual((await store.preparePage(pageId, "en-US")).map(set => set.specId), ["iphone"])
   }))

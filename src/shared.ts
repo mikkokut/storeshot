@@ -7,6 +7,8 @@ export const SCREENSHOT_DEVICE_TYPES = [
   "ipad",
   "mac",
   "watch",
+  "tv",
+  "vision",
 ] as const
 export type ScreenshotDeviceType = (typeof SCREENSHOT_DEVICE_TYPES)[number]
 export type DetectedScreenshotDeviceType = ScreenshotDeviceType | "unknown"

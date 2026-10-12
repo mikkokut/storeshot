@@ -40,12 +40,16 @@ const deviceTypeLabels: Record<ScreenshotDeviceType, string> = {
   ipad: "iPad",
   mac: "Mac",
   watch: "Watch",
+  tv: "Apple TV",
+  vision: "Apple Vision Pro",
 }
-const screenshotGroupOrder: DetectedScreenshotDeviceType[] = ["iphone", "ipad", "mac", "watch", "unknown"]
+const screenshotGroupOrder: DetectedScreenshotDeviceType[] = ["iphone", "ipad", "mac", "watch", "tv", "vision", "unknown"]
 const screenshotPreviewAspectRatios: Record<DetectedScreenshotDeviceType, string> = {
   iphone: "1290 / 2796",
   ipad: "3 / 4",
   mac: "16 / 10",
+  tv: "16 / 9",
+  vision: "16 / 9",
   watch: "422 / 514",
   unknown: "4 / 3",
 }
@@ -438,6 +442,8 @@ function DeviceTypeIcon({ deviceType }: { deviceType: DetectedScreenshotDeviceTy
     ipad: Tablet,
     mac: Monitor,
     watch: WatchIcon,
+    tv: Monitor,
+    vision: Monitor,
     unknown: CircleHelp,
   }[deviceType]
   return <Icon className="size-3.5" />

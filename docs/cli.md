@@ -224,6 +224,10 @@ storeshot -C ./screenshots asset set-device screenshots/home.png iphone
 storeshot -C ./screenshots asset remove brand/old-logo.svg --yes
 ```
 
+Device overrides accept `iphone`, `ipad`, `mac`, `watch`, `tv`, `vision`, or
+`auto`. TV and Vision Pro share a 3840 × 2160 capture size; select `vision`
+explicitly before preparing Vision Pro artwork.
+
 Asset replacement requires `--replace`. Removing an asset directly referenced by its path in HTML is blocked
 unless `--force` is explicit. References constructed through CSS or alternate
 URL encodings are not exhaustively detected; check those before removal. Set and asset deletion require `--yes`, which

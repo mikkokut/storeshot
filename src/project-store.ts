@@ -638,7 +638,7 @@ export class ProjectStore {
     ])
     if (
       !CREATION_SPECS.some(
-        (spec) => spec.device !== "creative" && devices.has(spec.device),
+        (spec) => spec.device !== "creative" && spec.requirement === "required" && devices.has(spec.device),
       )
     )
       devices.add("iphone")

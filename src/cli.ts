@@ -592,10 +592,10 @@ function configureAssetCommands(program: Command): void {
     .command("set-device")
     .description("Override or clear raw screenshot device classification")
     .argument("<id>", "asset id such as screenshots/home.png")
-    .argument("<device>", "iphone, ipad, mac, watch, or auto")
+    .argument("<device>", "iphone, ipad, mac, watch, tv, vision, or auto")
     .action(async (id: string, device: ScreenshotDeviceType | "auto") => {
       if (device !== "auto" && !SCREENSHOT_DEVICE_TYPES.includes(device))
-        throw new Error("Device must be iphone, ipad, mac, watch, or auto")
+        throw new Error("Device must be iphone, ipad, mac, watch, tv, vision, or auto")
       const { category, filename } = parseAssetId(id)
       const store = await openProject(program)
       await store.updateAssetMetadata(category, filename, {
