@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { execFile } from "node:child_process"
-import { mkdtemp, rename, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises"
 import { request as httpRequest } from "node:http"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -29,7 +29,7 @@ test("PNG requests share Chrome across languages and concurrent exports, recover
     assert.equal((await png(sets[0])).status, 400)
     const results = await Promise.all(sets.map(png))
     for (const response of results) {
-      assert.equal(response.status, 200)
+      assert.equal(response.status, 200, response.status === 200 ? "PNG request succeeded" : await response.text())
       assert.equal(response.headers.get("content-type"), "image/png")
       assert.deepEqual(readImageMetadata(Buffer.from(await response.arrayBuffer())), { width: 400, height: 800 })
     }
@@ -285,7 +285,10 @@ test("annotation context identifies the rendered element without running artwork
 
 test("selectable previews expose text to the editor while artwork scripts stay blocked", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "storeshot-selectable-preview-"))
-  const service = await startServer({ host: "127.0.0.1", port: 0, packageRoot: process.cwd(), projectDirectory: directory, useVite: false })
+  const packageRoot = path.join(directory, "fixture-package")
+  await mkdir(path.join(packageRoot, "dist/ui"), { recursive: true })
+  await writeFile(path.join(packageRoot, "dist/ui/index.html"), "<!doctype html><html><body>Editor origin</body></html>")
+  const service = await startServer({ host: "127.0.0.1", port: 0, packageRoot, projectDirectory: directory, useVite: false })
   let browser: Browser | undefined
   try {
     const set = await service.store.createSet({ name: "Selectable", locale: "en-US", device: "iPhone", specId: "iphone", width: 1206, height: 2622 })
