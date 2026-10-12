@@ -90,6 +90,14 @@ export async function validateProject(directory: string, options: { pageId?: str
     try {
       assets = await store.listAssets()
       const imports = await store.readAssetImports()
+      for (const entry of imports) {
+        const licensePath = path.join(store.assetsPath, entry.licensePath)
+        try {
+          if (!(await readRegularFile(licensePath, store.assetsPath)).trim()) throw new Error("must not be empty")
+        } catch (error) {
+          issues.push(issue("error", "asset.invalidImportLicense", `assets/${entry.licensePath}`, `License for imported ${entry.asset.id} ${messageFor(error)}`))
+        }
+      }
       if (imports.length) {
         const files = await scanLocalAssetFiles(store.assetsPath)
         for (const entry of new Map(imports.map(entry => [entry.asset.id, entry])).values()) {
@@ -164,10 +172,14 @@ async function checkDirectory(directory: string, displayPath: string, issues: Va
 }
 
 async function readRegularFile(filename: string, boundary: string): Promise<string> {
-  const metadata = await lstat(filename)
-  if (!metadata.isFile() || metadata.isSymbolicLink()) throw new Error("must be a regular file")
   const relative = path.relative(boundary, filename)
   if (relative.startsWith("..") || path.isAbsolute(relative)) throw new Error("is outside the project boundary")
+  let current = boundary
+  for (const part of relative.split(path.sep)) {
+    current = path.join(current, part)
+    if ((await lstat(current)).isSymbolicLink()) throw new Error("must not use symbolic links")
+  }
+  if (!(await lstat(filename)).isFile()) throw new Error("must be a regular file")
   return readFile(filename, "utf8")
 }
 

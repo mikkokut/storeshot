@@ -16,6 +16,27 @@ const catalog = await loadAssetCatalog(root)
 const frame = catalog.find(asset => asset.id === "frameup-free-iphone-17-pro")!
 const image = await readCatalogFile(root, frame.file)
 const license = await readCatalogFile(root, frame.license.file)
+test("validation rejects missing, empty, non-file and symlinked imported licenses", async () => {
+  await withStore(async store => {
+    const imported = await store.importCatalogAsset(frame, image, license)
+    const target = path.join(store.root, imported.licensePath)
+    assert.equal((await validateProject(store.root)).report.ok, true)
+    const invalid = async () => assert.ok((await validateProject(store.root)).report.errors.some(issue => issue.code === "asset.invalidImportLicense"))
+    await rm(target)
+    await invalid()
+    await writeFile(target, " \n")
+    await invalid()
+    await rm(target)
+    await mkdir(target)
+    await invalid()
+    await rm(target, { recursive: true })
+    await symlink(path.join(root, "LICENSE"), target)
+    await invalid()
+    await rm(path.dirname(target), { recursive: true })
+    await symlink(root, path.dirname(target), "dir")
+    await invalid()
+  })
+})
 async function withStore(run: (store: ProjectStore) => Promise<void>) {
   const directory = await mkdtemp(path.join(tmpdir(), "storeshot-catalog-"))
   try { const store = new ProjectStore(directory); await store.initialize(); await run(store) }
