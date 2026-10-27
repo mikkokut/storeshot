@@ -5,7 +5,9 @@ import { useAnnotations } from "@/PromptAnnotations"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent } from "@/components/ui/popover"
 import { assetSpec } from "../app-store"
+import { previewBorderRadius } from "@/app-store-preview"
 import { cn } from "@/lib/utils"
+import { areaCanvas } from "../shared"
 import type { ScreenshotArea, ScreenshotSet } from "../shared"
 
 type PreviewState = "loading" | "updated" | "ready"
@@ -23,6 +25,7 @@ export function ArtworkPreview({ set, area, scale, frameClassName, children }: {
   frameClassName: string
   children?: ReactNode
 }) {
+  const canvas = areaCanvas(set, area)
   const annotations = useAnnotations()
   const selectable = assetSpec(set.specId)?.kind === "screenshots"
   const annotating = annotations?.active && selectable
@@ -78,7 +81,7 @@ export function ArtworkPreview({ set, area, scale, frameClassName, children }: {
           frameClassName,
           annotating && "cursor-crosshair outline-2 outline-offset-2 outline-primary/15 transition-[outline-color] hover:outline-primary/70 focus-visible:outline-primary/70",
         )}
-        style={{ width: set.canvas.width * scale, height: set.canvas.height * scale }}
+        style={{ width: canvas.width * scale, height: canvas.height * scale, borderRadius: previewBorderRadius(set.specId, canvas, scale) }}
         role={annotating ? "button" : undefined}
         tabIndex={annotating ? 0 : undefined}
         aria-label={annotating ? `Comment on ${area.name}` : undefined}
@@ -136,8 +139,8 @@ export function ArtworkPreview({ set, area, scale, frameClassName, children }: {
             <Button variant="ghost" size="sm" onClick={() => {
               const rect = selection.range.getBoundingClientRect()
               annotations?.begin(set, area, {
-                x: Math.max(0, Math.min(100, (rect.left + rect.width / 2) / set.canvas.width * 100)),
-                y: Math.max(0, Math.min(100, (rect.top + rect.height / 2) / set.canvas.height * 100)),
+                x: Math.max(0, Math.min(100, (rect.left + rect.width / 2) / canvas.width * 100)),
+                y: Math.max(0, Math.min(100, (rect.top + rect.height / 2) / canvas.height * 100)),
               }, selection.text)
               selection.frame.contentDocument?.getSelection()?.removeAllRanges()
               setSelection(null)
@@ -170,6 +173,7 @@ function PreviewFrame({ set, area, revision, scale, visible, selectable, annotat
   onShortcut: (event: KeyboardEvent) => void
   onLoad: () => void
 }) {
+  const canvas = areaCanvas(set, area)
   const [frame, setFrame] = useState<HTMLIFrameElement | null>(null)
   const [document, setDocument] = useState<Document | null>(null)
   const selected = useEffectEvent(() => {
@@ -186,7 +190,7 @@ function PreviewFrame({ set, area, revision, scale, visible, selectable, annotat
     if ((event.target as Element | null)?.closest("a, button, input, select, textarea")) event.preventDefault()
     if (!document?.getSelection()?.isCollapsed) return
     onSelection(null)
-    if (annotating) onClick({ x: event.clientX / set.canvas.width * 100, y: event.clientY / set.canvas.height * 100 })
+    if (annotating) onClick({ x: event.clientX / canvas.width * 100, y: event.clientY / canvas.height * 100 })
   })
   const shortcut = useEffectEvent(onShortcut)
   useEffect(() => {
@@ -287,7 +291,7 @@ function PreviewFrame({ set, area, revision, scale, visible, selectable, annotat
       sandbox={selectable ? "allow-same-origin" : ""}
       src={`/artboards/sets/${set.id}/${area.id}.html?revision=${encodeURIComponent(revision)}${selectable ? "&preview=selectable" : ""}`}
       className={cn("absolute top-0 left-0 block border-0 bg-white", (!selectable || !visible || !document) && "pointer-events-none")}
-      style={{ width: set.canvas.width, height: set.canvas.height, transform: `scale(${scale})`, transformOrigin: "top left", opacity: visible ? 1 : 0 }}
+      style={{ width: canvas.width, height: canvas.height, transform: `scale(${scale})`, transformOrigin: "top left", opacity: visible ? 1 : 0 }}
       onLoad={event => {
         if (selectable) {
           try { setDocument(event.currentTarget.contentDocument) } catch { /* An older preview server keeps its opaque sandbox. */ }

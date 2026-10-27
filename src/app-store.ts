@@ -1,3 +1,4 @@
+import { areaCanvas } from "./shared.js"
 import { APP_STORE_LOCALES } from "./app-store-locales.js"
 import type {
   AppDevice,
@@ -82,20 +83,12 @@ export const ASSET_SPECS: AssetSpec[] = [
     [750, 1334],
   ]),
   screenshot(
-    "iphone-duo-outer",
-    "iPhone Duo · Outer display",
     "iphone-duo",
-    [[1398, 2034]],
-    "upcoming",
-    "Design for this display, then check the inner layout. Required from April 2027 for apps using the iOS 27.1 SDK or later.",
-  ),
-  screenshot(
-    "iphone-duo-inner",
-    "iPhone Duo · Inner display",
+    "iPhone Duo",
     "iphone-duo",
-    [[2007, 2853]],
+    [[1398, 2034], [2007, 2853]],
     "upcoming",
-    "Show how your app uses the expanded display. Required from April 2027 for apps using the iOS 27.1 SDK or later.",
+    "One ordered collection of 1–10 screenshots across outer and inner displays, in portrait or landscape. Required from April 2027 for apps using the iOS 27.1 SDK or later.",
   ),
   screenshot(
     "ipad",
@@ -312,7 +305,10 @@ export function readinessIssues(
         "Assign an App Store asset specification; the original dimensions are preserved.",
       )
     else {
-      if (!acceptsSize(spec, set.canvas.width, set.canvas.height))
+      if (!acceptsSize(spec, set.canvas.width, set.canvas.height) || set.areas.some((area) => {
+        const canvas = areaCanvas(set, area)
+        return !acceptsSize(spec, canvas.width, canvas.height) || (area.canvas !== undefined && spec.id !== "iphone-duo")
+      }))
         add("dimensions", `${spec.name} has unsupported dimensions.`)
       if (set.areas.length < 1 || set.areas.length > spec.maxCount)
         add("count", `${spec.name} needs 1–${spec.maxCount} images.`)

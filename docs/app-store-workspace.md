@@ -50,6 +50,10 @@ the project config has no root-level store.
    Previews start at 150%, and reset returns to that size; export dimensions stay
    unchanged. Review artwork directly on the page. Ask your agent to refine the
    design or reorder the images.
+   Screenshot corners follow App Store Connect's device masks, including Duo's
+   asymmetric outer display and Watch model differences. The mask scales with
+   preview zoom; artwork and PNG exports retain their full rectangular canvas.
+   See [preview measurements](app-store-preview.md) for the inspected values.
 5. Ask your agent to add optional creative artwork or localize an existing
    language with `page localize`, then translate and review the copy and layout.
    Screenshot and language creation are handled by the agent through the CLI;
@@ -66,22 +70,21 @@ There is no manual review checklist or status to maintain.
 
 ## Current Apple specifications
 
-Verified **2026-10-11** against Apple's [screenshot specifications](https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications/).
-Creation uses one fixed size per currently required or upcoming device. Size and orientation
+Duo handling verified **2026-10-27**; other specifications verified **2026-10-11** against Apple's [screenshot specifications](https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications/).
+Creation uses one default size per currently required or upcoming device. Size and orientation
 selectors are omitted. The data schema and validation catalog retain alternative
 published dimensions, orientations, and display destinations for future support.
 
 | Destination | Default export size | Requirement |
 | --- | --- | --- |
 | iPhone, Dynamic Island medium | 1206 × 2622 | Required for iPhone |
-| iPhone Duo, outer display | 1398 × 2034 | Required from April 2027 for apps using iOS 27.1 SDK or later |
-| iPhone Duo, inner display | 2007 × 2853 | Required from April 2027 for apps using iOS 27.1 SDK or later |
+| iPhone Duo | 1398 × 2034 default; also 2007 × 2853, either orientation | Required from April 2027 for apps using iOS 27.1 SDK or later |
 | iPad, 13-inch | 2064 × 2752 | Required if supported |
 | Apple Watch | 422 × 514 | Required if supported; consistent size across languages |
 | Mac | 2880 × 1800 | Required if supported; 16:10 |
 | Apple TV / Vision Pro | 3840 × 2160 | Required if supported |
 
-Screenshots accept 1–10 images per display size. Exported PNGs have an opaque
+Screenshots accept 1–10 images per destination. Exported PNGs have an opaque
 background. App Store Connect scales required screenshots for smaller displays;
 StoreShot does not currently offer optional display overrides.
 Browser exports share one Chrome instance across images and languages; it starts
@@ -97,10 +100,15 @@ The current Apple screenshot page has mixed legacy scaling notes alongside its n
 “Required device sizes” section. StoreShot follows the explicit medium Dynamic Island
 requirement. Optional larger iPhone and smaller iPad display slots remain in the
 validation catalog for existing artwork, with no new-creation controls. The
-iPhone Duo tab offers separate outer (1398 × 2034) and inner (2007 × 2853)
-display slots, each with its own creation control and artwork collection.
-Duo slots are upcoming: `page prepare` does not create them, and readiness checks
-do not require a counterpart. Create them explicitly to prepare future artwork.
+iPhone Duo tab offers one ordered collection per page and language, matching App
+Store Connect's single Duo upload category. Its 1–10 image limit is shared across
+outer (1398 × 2034) and inner (2007 × 2853) screenshots, including landscape
+rotations. Create it explicitly with `set create --spec iphone-duo`.
+Each artboard can set `"canvas": { "width": 2007, "height": 2853 }` in its
+`<area-id>.json` metadata; omitted canvases inherit the collection default. Compose
+the matching HTML at those dimensions. Previews, annotations, and PNG exports use
+each image's dimensions. Localization preserves them and exports keep one ordered
+Duo directory. `page prepare` does not create the upcoming Duo collection.
 Their conditional requirement starts in April 2027 for apps using iOS 27.1 SDK or later;
 StoreShot does not yet track the app's SDK version.
 

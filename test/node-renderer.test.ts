@@ -168,3 +168,24 @@ test("clean exports reject symlinks at every output level before deleting files"
     }
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
+
+
+test("Duo exports one ordered destination with each image's display dimensions", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "storeshot-duo-render-"))
+  try {
+    const store = new ProjectStore(directory)
+    await store.initialize()
+    const set = await store.createSet({ name: "Duo", locale: "en-US", device: "iPhone Duo", specId: "iphone-duo", width: 1398, height: 2034 })
+    const sizes = [[1398, 2034], [2034, 1398], [2007, 2853], [2853, 2007]]
+    set.areas = sizes.map(([width, height], index) => ({ id: `duo-${index}`, name: `Display ${index}`, ...(index ? { canvas: { width, height } } : {}), html: createArtboardHtml(width, height) }))
+    await store.writeSet(set.id, set)
+    const result = await renderScreenshotSets({ store, sets: [await store.readSet(set.id)], outputDirectory: path.join(directory, "export"), clean: false, scale: 1 })
+    assert.deepEqual(result.files.map(file => [file.width, file.height]), sizes)
+    assert.equal(new Set(result.files.map(file => path.dirname(file.path))).size, 1)
+    for (const [index, file] of result.files.entries()) {
+      const metadata = readImageMetadata(await readFile(file.path))
+      assert.deepEqual([metadata?.width, metadata?.height], sizes[index])
+      assert.match(file.path, new RegExp(`/iphone-duo/${set.id}/0${index + 1}-`))
+    }
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})

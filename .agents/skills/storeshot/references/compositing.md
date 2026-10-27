@@ -1,15 +1,17 @@
 # Compositing recipes
 
 Adapt these fragments inside a complete static artboard document. Numbers are
-illustrative, not device specifications. Use the collection's canvas size and
-actual imported asset paths. Keep related styles in a project-local stylesheet
+illustrative, not device specifications. Use the artboard's canvas override when present (iPhone Duo), otherwise the
+collection's canvas size, and actual imported asset paths. Keep related styles in a project-local stylesheet
 when several artboards share the treatment. URLs in CSS resolve relative to the
 stylesheet file; URLs in inline styles resolve relative to the artboard HTML.
 
 Lay out at the canvas's full pixel size, for example
 `html, body { margin: 0; width: 1206px; height: 2622px; overflow: hidden; }`,
 but only on a canvas of that size. Give the body an intentional opaque
-background. Flexbox, Grid, absolute positioning, transforms, masks, and inline
+background. StoreShot applies device corner masks only in the workspace preview;
+do not clip the whole HTML canvas or add transparent corners to exported images.
+Flexbox, Grid, absolute positioning, transforms, masks, and inline
 SVG all work. Artboards made by `set create` start with
 `img, svg { display: block; max-width: 100% }` and `line-height: 1.5`. Override
 these for devices or images that intentionally extend past the canvas edge, or

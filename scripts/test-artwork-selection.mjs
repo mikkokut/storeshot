@@ -23,6 +23,19 @@ try {
   await page.setViewport({ width: 1536, height: 1100 })
   await page.goto(`http://127.0.0.1:${service.port}/pages/${set.pageId}`)
   await page.waitForFunction(() => [...document.querySelectorAll('main iframe')].length === 6 && [...document.querySelectorAll('main iframe')].every(f => f.contentDocument?.querySelector('tspan') && getComputedStyle(f).pointerEvents === 'auto'))
+  async function previewCorners() {
+    return page.$$eval('main iframe', frames => frames.map(frame => {
+      const style = getComputedStyle(frame.parentElement)
+      return {
+        height: frame.parentElement.getBoundingClientRect().height,
+        radii: [style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomRightRadius, style.borderBottomLeftRadius].map(parseFloat),
+      }
+    }))
+  }
+  function assertCorners(measured, referenceHeight, expected) {
+    expected.forEach((radius, index) => assert.ok(Math.abs(measured.radii[index] / measured.height - radius / referenceHeight) < 0.000001, `Corner ${index} matches App Store Connect at every zoom`))
+  }
+  ;(await previewCorners()).forEach(measured => assertCorners(measured, 240, [12, 12, 12, 12]))
   const frames = await page.$$('main iframe')
   async function checkQueueLayout() {
     const measure = () => page.evaluate(() => {
@@ -131,6 +144,74 @@ try {
   await page.keyboard.press('Escape')
   await page.waitForSelector('textarea[aria-label="Comment"]', { hidden: true })
   assert.equal(await page.$eval('button[aria-keyshortcuts="A"]', el => el.getAttribute('aria-pressed')), 'false', 'Escape in the comment dialog also exits annotation mode')
+  const duo = await service.store.createSet({ name: 'Duo', locale: 'en-US', device: 'iPhone Duo', specId: 'iphone-duo', width: 1398, height: 2034 })
+  const duoSizes = [[1398, 2034], [2034, 1398], [2007, 2853], [2853, 2007]]
+  await service.store.writeSet(duo.id, { ...duo, areas: duoSizes.map(([width, height], index) => ({
+    id: `duo-${index}`, name: `Duo ${index}`, canvas: { width, height },
+    html: `<style>html,body{margin:0;width:${width}px;height:${height}px;background:#ecf3ff;font-family:Arial;box-sizing:border-box}body{padding:7%}h1{font-size:80px;line-height:1.05;margin:0 0 4%}p{font-size:42px;margin:0;color:#304d76}.app{height:65%;margin-top:8%;border:6px solid #304d76;border-radius:40px;background:repeating-linear-gradient(135deg,#a9c7ec 0 100px,#cddff5 100px 200px)}</style><h1>Duo ${index}</h1><p>${index < 2 ? 'Outer display' : 'Inner display'} · ${width > height ? 'Landscape' : 'Portrait'}</p><div class="app"></div>`,
+  })) })
+  await page.reload()
+  await page.waitForFunction(() => [...document.querySelectorAll('[role="tab"]')].some(el => el.textContent.includes('iPhone Duo')))
+  await page.evaluate(() => [...document.querySelectorAll('[role="tab"]')].find(el => el.textContent.includes('iPhone Duo')).click())
+  await page.waitForFunction(() => [...document.querySelectorAll('main iframe')].length === 4 && [...document.querySelectorAll('main iframe')].every(f => f.contentDocument?.querySelector('h1')))
+  assert.deepEqual(await page.$$eval('main iframe', frames => frames.map(frame => [frame.offsetWidth, frame.offsetHeight])), duoSizes, 'One Duo strip previews all four accepted sizes in order')
+  assert.equal(await page.evaluate(() => document.querySelector('main').textContent.includes('Outer display')), false, 'Duo has no separate outer display slot')
+  const duoMasks = [[240, [4, 21, 21, 4]], [165, [4, 4, 21, 21]], [240, [21, 21, 21, 21]], [240, [21, 21, 21, 21]]]
+  ;(await previewCorners()).forEach((measured, index) => assertCorners(measured, ...duoMasks[index]))
+  const initialMasks = await previewCorners()
+  await page.click('button[aria-label="Zoom in"]')
+  const zoomedMasks = await previewCorners()
+  zoomedMasks.forEach((measured, index) => {
+    assertCorners(measured, ...duoMasks[index])
+    assert.ok(measured.radii[0] > initialMasks[index].radii[0], 'Zoom scales the mask with the artwork')
+  })
+  await page.click('button[aria-label="Reset zoom"]')
+
+  const pngResponse = await page.evaluate(async id => {
+    const response = await fetch(`/api/sets/${id}/areas/duo-3/png`, { method: 'POST' })
+    const blob = await response.blob()
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    const bitmap = await createImageBitmap(blob)
+    const canvas = document.createElement('canvas')
+    canvas.width = bitmap.width
+    canvas.height = bitmap.height
+    const context = canvas.getContext('2d')
+    context.drawImage(bitmap, 0, 0)
+    const corner = [...context.getImageData(0, 0, 1, 1).data]
+    bitmap.close()
+    const view = new DataView(bytes.buffer)
+    return { status: response.status, width: view.getUint32(16), height: view.getUint32(20), corner }
+  }, duo.id)
+  assert.deepEqual(pngResponse, { status: 200, width: 2853, height: 2007, corner: [236, 243, 255, 255] }, 'Service PNG keeps full dimensions and opaque, unmasked artwork corners')
+  await page.setViewport({ width: 1800, height: 1000 })
+  await page.click('button[aria-label="Zoom out"]')
+  await page.click('button[aria-label="Zoom out"]')
+  await page.click('button[aria-label="Zoom out"]')
+  await page.screenshot({ path: '/tmp/storeshot-duo-workspace.png', fullPage: true })
+  const deviceMasks = [
+    ['iPad', 'ipad', 2064, 2752, 240, 3],
+    ['Apple Watch', 'watch', 422, 514, 214, 38],
+    ['Mac', 'mac', 2880, 1800, 215, 3],
+    ['Apple TV', 'tv', 3840, 2160, 215, 3],
+    ['Apple Vision Pro', 'vision', 3840, 2160, 215, 3],
+  ]
+  const deviceSetIds = new Map()
+  for (const [device, specId, width, height] of deviceMasks) {
+    const created = await service.store.createSet({ name: device, device, specId, locale: 'en-US', width, height })
+    deviceSetIds.set(specId, created.id)
+  }
+  await page.reload()
+  for (const [device, specId, width, height, referenceHeight, radius] of deviceMasks) {
+    await page.waitForFunction(label => [...document.querySelectorAll('[role="tab"]')].some(el => el.textContent.trim().startsWith(label)), {}, device)
+    await page.evaluate(label => [...document.querySelectorAll('[role="tab"]')].find(el => el.textContent.trim().startsWith(label)).click(), device)
+    await page.waitForFunction(id => {
+      const frames = [...document.querySelectorAll('main iframe')]
+      return frames.length === 1 && frames[0].getAttribute('src').includes(`/sets/${id}/`)
+    }, {}, deviceSetIds.get(specId))
+    assertCorners((await previewCorners())[0], referenceHeight, [radius, radius, radius, radius])
+  }
+  console.log('Passed device masks for iPhone, all Duo orientations, iPad, Watch, Mac, TV, and Vision Pro; zoom scales corners; exports retain opaque rectangular corners.')
+  console.log('Passed one Duo strip with mixed display sizes, orientations, and service PNG export.')
   console.log('Passed native SVG/HTML drags, drag timing, frame ownership, scroll tracking, outside dismissal, Escape, and annotation context.')
 } finally {
   await browser?.close()
