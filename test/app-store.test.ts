@@ -34,8 +34,8 @@ async function fixture(run: (store: ProjectStore, pageId: string) => Promise<voi
 test("Apple dimensions include Duo, creative placements, orientations and 3:2 ranges", () => {
   for (const [id, w, h] of [
     ["iphone", 1206, 2622],
-    ["iphone-duo-inner", 2007, 2853],
-    ["iphone-duo-outer", 1398, 2034],
+    ["iphone-duo", 2007, 2853],
+    ["iphone-duo", 1398, 2034],
     ["header", 3840, 1646],
     ["universal", 5244, 2950],
     ["search-results", 3000, 2000],
@@ -47,9 +47,9 @@ test("Apple dimensions include Duo, creative placements, orientations and 3:2 ra
   assert.equal(acceptsSize(assetSpec("search-results")!, 2000, 1500), false)
   assert.equal(acceptsSize(assetSpec("header")!, 1646, 3840), false)
 })
-test("upcoming Duo slots remain creatable without preparation or missing-counterpart warnings", async () =>
+test("the upcoming Duo slot remains creatable without preparation or missing-counterpart warnings", async () =>
   fixture(async (store, pageId) => {
-    for (const specId of ["iphone-duo-outer", "iphone-duo-inner"]) {
+    for (const specId of ["iphone-duo"]) {
       const spec = assetSpec(specId)!
       assert.equal(spec.requirement, "upcoming")
       assert.ok(CREATION_SPECS.includes(spec))
@@ -59,7 +59,7 @@ test("upcoming Duo slots remain creatable without preparation or missing-counter
     }
     assert.deepEqual((await store.preparePage(pageId, "en-US")).map(set => set.specId), ["iphone"])
     const page = await store.createPage({ name: "Duo draft" })
-    const spec = assetSpec("iphone-duo-outer")!
+    const spec = assetSpec("iphone-duo")!
     const [width, height] = creationSize(spec)
     await store.createSet({ pageId: page.id, specId: spec.id, name: spec.name, device: spec.name, locale: "en-US", width, height })
     assert.deepEqual((await store.preparePage(page.id, "en-US")).map(set => set.specId), ["iphone"])
@@ -443,8 +443,7 @@ test("creation offers current required and upcoming displays at one fixed size w
     ]),
     [
       ["iphone", [1206, 2622]],
-      ["iphone-duo-outer", [1398, 2034]],
-      ["iphone-duo-inner", [2007, 2853]],
+      ["iphone-duo", [1398, 2034]],
       ["ipad", [2064, 2752]],
       ["watch", [422, 514]],
       ["mac", [2880, 1800]],
@@ -460,8 +459,8 @@ test("creation offers current required and upcoming displays at one fixed size w
   assert.equal(acceptsSize(assetSpec("iphone")!, 1179, 2556), true)
   assert.equal(acceptsSize(assetSpec("iphone")!, 2622, 1206), true)
   assert.equal(acceptsSize(assetSpec("iphone-large")!, 1320, 2868), true)
-  assert.equal(acceptsSize(assetSpec("iphone-duo-outer")!, 1398, 2034), true)
-  assert.equal(acceptsSize(assetSpec("iphone-duo-inner")!, 2007, 2853), true)
+  assert.equal(acceptsSize(assetSpec("iphone-duo")!, 1398, 2034), true)
+  assert.equal(acceptsSize(assetSpec("iphone-duo")!, 2007, 2853), true)
 })
 
 test("stored alternate dimensions remain editable and Watch creation keeps localization dimensions consistent", async () =>
@@ -577,4 +576,34 @@ test("a Duo-only source still prepares the default required iPhone destination",
   fixture(async (store, pageId) => {
     await store.addAsset("screenshots", "duo.svg", Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="1398" height="2034"></svg>'))
     assert.deepEqual((await store.preparePage(pageId, "en-US")).map(set => set.specId), ["iphone"])
+  }))
+
+
+test("Duo uses one slot and a shared ten-image limit across all four dimensions", async () =>
+  fixture(async (store, pageId) => {
+    const spec = assetSpec("iphone-duo")!
+    assert.deepEqual(ASSET_SPECS.filter(spec => spec.device === "iphone-duo").map(spec => spec.id), ["iphone-duo"])
+    const sizes = [[1398, 2034], [2034, 1398], [2007, 2853], [2853, 2007]]
+    const set = await store.createSet({ name: "Duo", device: "iPhone Duo", specId: spec.id, locale: "en-US", width: 1398, height: 2034 })
+    set.areas = sizes.map(([width, height], index) => ({ id: `duo-${index}`, name: `Display ${index}`, canvas: { width, height }, html: `<html><body>${index}</body></html>` }))
+    await store.writeSet(set.id, set)
+    const saved = await store.readSet(set.id)
+    assert.deepEqual(saved.areas.map(area => area.canvas), set.areas.map(area => area.canvas))
+    const metadata = JSON.parse(await readFile(path.join(store.setsPath, set.id, "duo-2.json"), "utf8"))
+    assert.deepEqual(metadata.canvas, { width: 2007, height: 2853 })
+    assert.deepEqual(readinessIssues(await store.readConfig(), [saved]), [])
+    await assert.rejects(store.createSet({ name: "Other display", device: "iPhone Duo", specId: spec.id, locale: "en-US", width: 2007, height: 2853 }), /already have this asset slot/)
+    await store.localizePage(pageId, { locale: "fi", sourceLocale: "en-US" })
+    const localized = (await store.listSets()).find(set => set.locale === "fi")!
+    assert.deepEqual(localized.areas.map(area => area.canvas), saved.areas.map(area => area.canvas))
+    const invalid = structuredClone(saved)
+    invalid.areas[0].canvas = { width: 2007, height: 2034 }
+    assert.ok(readinessIssues(await store.readConfig(), [invalid]).some(issue => issue.code === "dimensions"))
+    await assert.rejects(store.writeSet(set.id, invalid), /dimensions/)
+    const ten = { ...saved, areas: Array.from({ length: 10 }, (_, index) => ({ ...saved.areas[index % 4], id: `duo-${index}` })) }
+    await store.writeSet(set.id, ten)
+    assert.equal((await store.readSet(set.id)).areas.length, 10)
+    const eleven = { ...ten, areas: [...ten.areas, { ...saved.areas[0], id: "eleventh" }] }
+    assert.ok(readinessIssues(await store.readConfig(), [eleven]).some(issue => issue.code === "count"))
+    await assert.rejects(store.writeSet(set.id, eleven), /at most 10/)
   }))

@@ -1,3 +1,4 @@
+import { areaCanvas } from "./shared.js"
 import { inspectArtworkTarget } from "./annotation-context.js"
 import type { ArtworkAnnotationContext } from "./shared.js"
 import type { Page } from "puppeteer-core"
@@ -53,13 +54,14 @@ export async function createBrowserRenderer(store: ProjectStore, chrome?: string
     return result
   }
   async function withArtboard<T>(set: ScreenshotSet, area: ScreenshotArea, scale: number, action: (page: Page) => Promise<T>): Promise<T> {
+    const canvas = areaCanvas(set, area)
     if (!Number.isFinite(scale) || scale <= 0 || scale > 1) throw new Error("Render scale must be greater than 0 and at most 1")
-    if (Math.round(set.canvas.width * scale) < 1 || Math.round(set.canvas.height * scale) < 1) throw new Error("Render scale is too small for this artboard")
+    if (Math.round(canvas.width * scale) < 1 || Math.round(canvas.height * scale) < 1) throw new Error("Render scale is too small for this artboard")
     const page = await browser.newPage()
     const failures = new Set<string>()
     try {
       await page.setJavaScriptEnabled(false)
-      await page.setViewport({ width: Math.round(set.canvas.width), height: Math.round(set.canvas.height), deviceScaleFactor: scale })
+      await page.setViewport({ width: Math.round(canvas.width), height: Math.round(canvas.height), deviceScaleFactor: scale })
       await page.setRequestInterception(true)
       page.on("request", (request) => {
         const url = new URL(request.url())
@@ -78,7 +80,7 @@ export async function createBrowserRenderer(store: ProjectStore, chrome?: string
         await Promise.all(Array.from(document.images, (image) => image.decode()))
       })
       if (failures.size) throw new Error(`Artboard ${area.name} has missing or blocked resources: ${[...failures].join(", ")}`)
-      // Capture exactly the set viewport, independently of body/document overflow.
+      // Capture exactly the artboard viewport, independently of body/document overflow.
       return await action(page)
     } finally { await page.close() }
   }
@@ -135,7 +137,8 @@ export async function renderScreenshotSets(options: RenderOptions): Promise<Rend
         const target = path.join(directory, filename)
         await assertNoOutputSymlinks(target, outputDirectory)
         await writeFile(target, await renderer.render(set, area, options.scale))
-        files.push({ areaId: area.id, setId: set.id, path: target, width: Math.max(1, Math.round(set.canvas.width * options.scale)), height: Math.max(1, Math.round(set.canvas.height * options.scale)) })
+        const canvas = areaCanvas(set, area)
+        files.push({ areaId: area.id, setId: set.id, path: target, width: Math.max(1, Math.round(canvas.width * options.scale)), height: Math.max(1, Math.round(canvas.height * options.scale)) })
       }
     }
     return { files, outputDirectory }

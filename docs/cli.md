@@ -267,10 +267,14 @@ storeshot -C ./screenshots render --locale fi
 ```
 
 `page prepare` fills missing required screenshot slots without replacing existing
-artwork. Creation uses one fixed size per required or upcoming display and omits
-optional display overrides. iPhone Duo outer and inner displays are upcoming;
-create them explicitly with `set create --spec iphone-duo-outer` or
-`--spec iphone-duo-inner`. Preparation and readiness checks do not require them.
+artwork. Creation uses one default size per required or upcoming destination and omits
+optional display overrides. iPhone Duo is one upcoming destination;
+create it explicitly with `set create --spec iphone-duo`. The collection defaults
+to 1398 × 2034 and shares one 10-image limit across outer and inner displays.
+For an individual Duo artboard, add `"canvas": { "width": 2007, "height": 2853 }`
+to its `<area-id>.json` and compose its HTML at that size. Accepted dimensions are
+1398 × 2034, 2034 × 1398, 2007 × 2853, and 2853 × 2007. Omitting `canvas` uses
+the collection default. Preparation and readiness checks do not require Duo yet.
 Source images are used for the page’s first language;
 other languages start with independent drafts. Standard iPhone compositions do not
 reuse Duo captures. These are draft

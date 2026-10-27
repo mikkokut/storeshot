@@ -50,7 +50,8 @@ the next update starts from where you left off.
 
 - **The right sizes, without looking them up.** Create artwork for iPhone, iPad,
   Apple Watch, Mac, Apple TV, and Vision Pro at the sizes Apple currently
-  requires. You can also prepare for the upcoming iPhone Duo displays.
+  requires. Prepare iPhone Duo artwork in one ordered collection that can mix
+  outer and inner display screenshots, with a shared limit of 10 images.
 - **More than screenshots.** Create Product Page Header, Search Results, and
   Universal Creative images at Apple's accepted dimensions.
 - **Find problems before you upload.** StoreShot flags missing required devices,

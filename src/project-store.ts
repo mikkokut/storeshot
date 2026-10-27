@@ -37,6 +37,7 @@ import { createArtboardHtml } from "./html-artboard.js"
 
 import {
   ASSET_CATEGORIES,
+  areaCanvas,
   type StoreShotConfig,
   type StoreShotProject,
   type Asset,
@@ -458,7 +459,12 @@ export class ProjectStore {
         throw new Error("Unknown App Store specification")
       return // Preserve imported artwork without claiming it is upload-ready.
     }
-    if (!acceptsSize(spec, set.canvas.width, set.canvas.height))
+    if (set.areas.some((area) => area.canvas !== undefined) && spec.id !== "iphone-duo")
+      throw new Error("Per-image canvas dimensions are only supported for iPhone Duo")
+    if (!acceptsSize(spec, set.canvas.width, set.canvas.height) || set.areas.some((area) => {
+      const canvas = areaCanvas(set, area)
+      return !acceptsSize(spec, canvas.width, canvas.height)
+    }))
       throw new Error("Unsupported App Store asset dimensions")
     if (set.areas.length > spec.maxCount)
       throw new Error(`This destination allows at most ${spec.maxCount} images`)
@@ -1002,7 +1008,7 @@ export class ProjectStore {
         )
         if (!isRecord(metadata)) throw new Error("Invalid artboard metadata")
         const html = await this.readManagedFile(path.join(directory, `${stem}.html`), directory, "utf8")
-        return { id: areaId, name: metadata.name, html, htmlPath: `sets/${id}/${stem}.html` }
+        return { id: areaId, name: metadata.name, ...(metadata.canvas !== undefined ? { canvas: metadata.canvas } : {}), html, htmlPath: `sets/${id}/${stem}.html` }
       }),
     )
     const result = parseScreenshotSet({
@@ -1053,7 +1059,7 @@ export class ProjectStore {
       await this.assertSafeWriteTarget(path.join(directory, `${stem}.json`), directory)
     await this.assertSafeWriteTarget(target, directory)
     for (const { area, stem } of files)
-      await writeJson(path.join(directory, `${stem}.json`), { name: area.name })
+      await writeJson(path.join(directory, `${stem}.json`), { name: area.name, ...(area.canvas ? { canvas: area.canvas } : {}) })
     const { id: _id, areas, ...metadata } = value
     await writeJson(target, { ...metadata, areas: areas.map((area) => area.id) })
   }
@@ -1253,7 +1259,13 @@ export function parseScreenshotSet(value: unknown): ScreenshotSet {
       throw new Error("Artboard HTML must be a non-empty string")
     if (Buffer.byteLength(area.html) > 20 * 1024 * 1024)
       throw new Error("Artboard HTML exceeds 20 MiB")
+    if (area.canvas !== undefined && !isRecord(area.canvas))
+      throw new Error("Artboard canvas is invalid")
     return {
+      ...(isRecord(area.canvas) ? { canvas: {
+        width: readPixelDimension(area.canvas.width, "Artboard canvas width"),
+        height: readPixelDimension(area.canvas.height, "Artboard canvas height"),
+      } } : {}),
       id: areaId,
       name: readString(area.name, "Area name"),
       html: area.html,

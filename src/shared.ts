@@ -98,6 +98,8 @@ export interface StoreShotProject {
 
 /** Metadata and HTML are hydrated from sets/<set-id>/<area-id>[-slug].{json,html}. */
 export interface ScreenshotArea {
+  /** iPhone Duo image dimensions; omitted images inherit the collection canvas. */
+  canvas?: { width: number; height: number }
   /** Project-relative artwork filename, hydrated from disk and never persisted. */
   htmlPath?: string
   /** Derived for live previews; never persisted in the collection document. */
@@ -134,4 +136,9 @@ export interface ArtworkAnnotationContext {
   path?: string
   source?: string
   rect?: { x: number; y: number; width: number; height: number }
+}
+
+/** The exported and previewed dimensions of one image. */
+export function areaCanvas(set: ScreenshotSet, area: ScreenshotArea): ScreenshotSet["canvas"] {
+  return area.canvas ?? set.canvas
 }

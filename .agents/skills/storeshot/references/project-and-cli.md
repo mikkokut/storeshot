@@ -72,11 +72,21 @@ that existing artwork may use; the creation choices are narrower. Let
 | Mac | `mac` | 2880 × 1800 | 16:10 landscape |
 | Apple TV | `tv` | 3840 × 2160 | |
 | Apple Vision Pro | `vision` | 3840 × 2160 | |
-| iPhone Duo · Outer display | `iphone-duo-outer` | 1398 × 2034 | Upcoming (April 2027, iOS 27.1 SDK); create only when wanted |
-| iPhone Duo · Inner display | `iphone-duo-inner` | 2007 × 2853 | Upcoming, as above |
+| iPhone Duo | `iphone-duo` | 1398 × 2034 default | One shared 1–10 image collection; upcoming (April 2027, iOS 27.1 SDK) |
 | Product Page Header | `header` | 3840 × 1646 | Optional creative, iOS/iPadOS 27+, 1 image |
 | Search Results | `search-results` | 3840 × 2560 | Optional creative, 3:2, 1 image |
 | Universal Creative | `universal` | 5244 × 2950 | One image usable for both Header and Search Results |
+
+Duo uses one ordered collection per page and language, including both displays.
+For each Duo artboard, optionally add `"canvas": { "width": 2007, "height": 2853 }`
+to its JSON metadata and compose its HTML at those dimensions. Accepted sizes are
+1398 × 2034 and 2007 × 2853, plus their landscape rotations. Without an override,
+the image inherits the collection canvas. All images share the same 10-image limit.
+Create with `set create --spec iphone-duo`; `page prepare` skips this upcoming slot.
+
+Screenshot previews use App Store Connect device corner masks; each Duo image’s
+canvas selects its outer/inner and portrait/landscape treatment. Masks scale with
+preview zoom. They do not alter HTML or exported PNGs: keep image corners opaque.
 
 Screenshot destinations hold 1–10 images. Creative placements hold exactly one.
 App Store Connect scales the required sizes down for smaller displays.

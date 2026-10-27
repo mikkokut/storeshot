@@ -1,3 +1,4 @@
+import { areaCanvas } from "../shared"
 import { exportPath, readinessIssues } from "../app-store"
 import type { ScreenshotSet, StoreShotProject } from "../shared"
 import { createZipArchive, safeFileNamePart, type ZipFile } from "./zip"
@@ -49,6 +50,7 @@ export async function exportCollections(
       locale: set.locale,
       specification: set.specId,
       canvas: set.canvas,
+      images: set.areas.map((area) => ({ id: area.id, name: area.name, canvas: areaCanvas(set, area) })),
       directory: exportPath(set),
     })),
   }

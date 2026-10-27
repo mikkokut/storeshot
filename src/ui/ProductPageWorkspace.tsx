@@ -1,3 +1,4 @@
+import { areaCanvas } from "../shared"
 import { useState } from "react"
 import {
   ChevronRight,
@@ -383,7 +384,7 @@ function ArtworkSlot({
       <ArtworkEmptyState
         title={`No ${name} ${isScreenshot ? "screenshots" : "artwork"} yet`}
         description={`Ask your agent to design ${name} ${isScreenshot ? "screenshots" : "artwork"}${locale ? ` in ${appStoreLocale(locale).name}` : ""}. Your preview updates as it saves changes.`}
-        metadata={`${spec.sizes[0].join(" × ")} px · ${isScreenshot ? "1–10 screenshots" : "1 PNG image"}`}
+        metadata={`${(spec.id === "iphone-duo" ? spec.sizes : [spec.sizes[0]]).map((size) => size.join(" × ")).join(" or ")} px${spec.id === "iphone-duo" ? " · portrait or landscape" : ""} · ${isScreenshot ? "1–10 screenshots" : "1 PNG image"}`}
         actions={
           <AgentPrompt
             page={page}
@@ -396,11 +397,6 @@ function ArtworkSlot({
     )
   return (
     <div>
-      {spec.device === "iphone-duo" && (
-        <h3 className="mb-5 text-sm font-medium">
-          {spec.id === "iphone-duo-outer" ? "Outer display" : "Inner display"}
-        </h3>
-      )}
       <ArtworkStrip
         set={set}
         zoom={zoom}
@@ -416,30 +412,33 @@ function ArtworkStrip({
   set: ScreenshotSet
   zoom: number
 }) {
-  const scale = Math.min(380 / set.canvas.height, 660 / set.canvas.width, 1) * zoom / 100
   return (
     <div className="-m-1 flex gap-5 overflow-x-auto p-1 pb-4">
-      {set.areas.map((area, index) => (
-        <figure
-          key={area.id}
-          className="min-w-0 shrink-0"
-          style={{ width: set.canvas.width * scale }}
-        >
-          <ArtworkPreview
-            set={set}
-            area={area}
-            scale={scale}
-            frameClassName="rounded-xl bg-white shadow-xs ring-1 ring-black/10"
+      {set.areas.map((area, index) => {
+        const canvas = areaCanvas(set, area)
+        const scale = Math.min(380 / canvas.height, 660 / canvas.width, 1) * zoom / 100
+        return (
+          <figure
+            key={area.id}
+            className="min-w-0 shrink-0"
+            style={{ width: canvas.width * scale }}
           >
-          <figcaption className="mt-2.5 truncate text-[13px]" title={area.name}>
-            <span className="mr-1.5 text-muted-foreground tabular-nums">
-              {String(index + 1).padStart(2, "0")}
-            </span>
-            {area.name}
-          </figcaption>
-          </ArtworkPreview>
-        </figure>
-      ))}
+            <ArtworkPreview
+              set={set}
+              area={area}
+              scale={scale}
+              frameClassName="rounded-xl bg-white shadow-xs ring-1 ring-black/10"
+            >
+            <figcaption className="mt-2.5 truncate text-[13px]" title={area.name}>
+              <span className="mr-1.5 text-muted-foreground tabular-nums">
+                {String(index + 1).padStart(2, "0")}
+              </span>
+              {area.name}
+            </figcaption>
+            </ArtworkPreview>
+          </figure>
+        )
+      })}
     </div>
   )
 }

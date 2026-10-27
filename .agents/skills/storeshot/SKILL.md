@@ -50,7 +50,9 @@ Map the request onto the project:
 - one collection per device destination
 - one artboard per image
 
-Create collections only for devices the app supports. A collection for any device makes that device required in every language of every page.
+Create collections only for devices the app supports. A collection for a currently required device makes that device required in every language of every page.
+
+For iPhone Duo, use one `iphone-duo` collection per page and language, with a shared limit of 10 screenshots across outer and inner displays. Do not create separate display collections. Individual artboard JSON metadata can override `canvas` to use 1398 × 2034 or 2007 × 2853, including landscape rotations; omitted overrides inherit the collection canvas. Compose each HTML file at its image dimensions. Duo is upcoming, so preparation and readiness do not yet require it.
 
 Read [design guide](references/design.md) before planning a new sequence. It covers story, copy, visual system, captures, localization craft, and the visual review checklist. Read the other references only when needed:
 
@@ -79,6 +81,8 @@ Compare each image with the design guide's review checklist and fix problems bef
 storeshot -C <dir> validate --json
 storeshot -C <dir> render --page <page-id> --clean --json
 ```
+
+The workspace applies App Store Connect corner masks to screenshot previews, including Duo’s asymmetric outer display and Watch model differences. They scale with preview zoom and are not part of the artwork. Keep HTML and exported PNGs rectangular and opaque; never add transparent corners to imitate the preview. Inspect the full PNG as well as the masked preview.
 
 Finals go to `<dir>/renders/<page>/<locale>/<spec>/<set>/NN-<screenshot-name>.png`. Confirm that each reported `width`/`height` matches its destination, and look at at least one full-resolution image per language to check typography. Images below scale 1 are previews only, never upload assets. If you cannot view images, say so and ask the user to review in the workspace.
 

@@ -1,3 +1,4 @@
+import { areaCanvas } from "./shared.js"
 import { createHash } from "node:crypto"
 import { readArtboardResource } from "./artboard-files.js"
 import type { StoreShotProject } from "./shared.js"
@@ -41,7 +42,7 @@ export async function addPreviewRevisions(project: StoreShotProject): Promise<vo
       }
     }
     await visit(area.html, `sets/${set.id}/${area.id}.html`)
-    area.previewRevision = digest(JSON.stringify([area.html, set.canvas, [...dependencies].sort(([a], [b]) => a.localeCompare(b))]))
+    area.previewRevision = digest(JSON.stringify([area.html, areaCanvas(set, area), [...dependencies].sort(([a], [b]) => a.localeCompare(b))]))
   })))
 }
 
