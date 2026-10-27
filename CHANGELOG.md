@@ -4,6 +4,18 @@ All notable changes to StoreShot will be documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versioning
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0](https://github.com/mikkokut/storeshot/compare/v0.4.0...v0.5.0) (2026-10-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* **app-store:** replace the iphone-duo-outer and iphone-duo-inner specification IDs with iphone-duo. Existing separate collections are preserved but must be consolidated into the unified destination; they are not automatically merged.
+
+### Bug Fixes
+
+* **app-store:** align Duo screenshots and previews with App Store Connect ([#9](https://github.com/mikkokut/storeshot/issues/9)) ([0c2b85c](https://github.com/mikkokut/storeshot/commit/0c2b85cf7941f25f10a79a39f7263ae5759b809d))
+* **website:** simplify the hero pill on mobile ([#7](https://github.com/mikkokut/storeshot/issues/7)) ([1a16264](https://github.com/mikkokut/storeshot/commit/1a16264fe0b16457b42fb206991ddf7d71e97dee))
+
 ## [0.4.0](https://github.com/mikkokut/storeshot/compare/v0.3.0...v0.4.0) (2026-10-12)
 
 
